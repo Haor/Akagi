@@ -43,7 +43,10 @@ it('renders rotated seats and candidate probabilities in matching columns with C
   expect(within(right).queryByText('二万', { exact: false })).toBeNull()
   expect(screen.getByText(chinese.observer.wait_hint)).toBeTruthy()
   const row = container.querySelector('[data-candidate-index="2"]') as HTMLTableRowElement
-  expect([...row.cells].map((cell) => cell.textContent)).toEqual(['✓ 立直 红五索', '10.00%', '20.00%', '30.00%', '50.00%', '4,000'])
+  expect([...row.cells].map((cell) => cell.textContent)).toEqual(['✓ 立直 红五索', '10.00%', '20.00%', '30.00%', '50.00%', '8,000', '4,000'])
+  expect(screen.getByRole('columnheader', { name: chinese.observer.conditional_loss })).toBeTruthy()
+  expect(screen.getByRole('columnheader', { name: chinese.observer.expected_loss })).toBeTruthy()
+  expect(screen.queryByRole('columnheader', { name: chinese.observer.recorded_loss })).toBeNull()
   expect(screen.getByText(chinese.observer.ron_hint)).toBeTruthy()
   expect(screen.queryByText(chinese.observer.truth_hint)).toBeNull()
   expect(screen.queryByLabelText(chinese.observer.truth_comparison)).toBeNull()
@@ -72,12 +75,13 @@ it('pairs truth by seat and candidate index, preserving full waits and false, un
   expect(within(screen.getByRole('article', { name: '上家 · 座位 2' })).getByText('实际听牌:', { exact: false }).textContent).toBe('实际听牌: 未知')
   expect(screen.getByText(chinese.observer.truth_missing_hand)).toBeTruthy()
   const played = container.querySelector('[data-candidate-index="2"]') as HTMLTableRowElement
-  expect([...played.cells].slice(1).map((cell) => cell.textContent)).toEqual(['10.00%真值：是', '20.00%真值：否', '30.00%真值：未知', '50.00%真值：是', '4,000实打损失：0'])
+  expect([...played.cells].slice(1).map((cell) => cell.textContent)).toEqual(['10.00%真值：是', '20.00%真值：否', '30.00%真值：未知', '50.00%真值：是', '8,000', '4,000', '0'])
+  expect(screen.getByRole('columnheader', { name: chinese.observer.recorded_loss })).toBeTruthy()
   const unplayed = container.querySelector('[data-candidate-index="1"]') as HTMLTableRowElement
-  expect(unplayed.cells[5].textContent).toBe('4,000实打损失：未实打')
+  expect(unplayed.cells[7].textContent).toBe('未实打')
   const missingOutcome = { ...truth, candidates: truth.candidates.map((candidate) => ({ ...candidate, deal_in_points: null })) }
   rerender(<ObserverDetails observer={observer} truth={missingOutcome} />)
-  expect(played.cells[5].textContent).toBe('4,000实打损失：未知')
+  expect(played.cells[7].textContent).toBe('未知')
 })
 
 it('shows unknown truth explicitly for a local review without adding it to live estimates', () => {

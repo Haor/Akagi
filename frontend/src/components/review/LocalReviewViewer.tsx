@@ -13,6 +13,7 @@ import { parseObserver } from '@/stores/observerStore'
 import { actionLabel } from './actionLabel'
 
 type ReviewFrame = { game: GameStateSnapshot; view: MahgenView }
+const TRUTH_FETCH_REASONS = new Set(['browser_unavailable', 'login_required', 'missing_game_uuid', 'unsupported', 'record_not_ready', 'download_failed', 'source_mismatch'])
 
 export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
   const { t, i18n } = useTranslation()
@@ -26,6 +27,8 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
   const [differencesOnly, setDifferencesOnly] = useState(false)
   const [truthImport, setTruthImport] = useState<{ id: string; state: 'loading' | 'success' | 'error' } | null>(null)
   const importState = truthImport?.id === result.history_id ? truthImport.state : null
+  const truthFetch = useLocalReviewStore((state) => state.selectedId === result.history_id && state.truthFetch?.id === result.history_id ? state.truthFetch : null)
+  const fetchReason = TRUTH_FETCH_REASONS.has(truthFetch?.reason ?? '') ? truthFetch!.reason : 'download_failed'
   useEffect(() => {
     let cancelled = false
     invoke<(ReviewFrame | null)[]>('get_local_review_frames', { id: result.history_id })
@@ -89,6 +92,12 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
       <span className="text-xs text-muted-foreground">{t('review.replay_visibility')}</span>
     </div>
     <div className="space-y-2 rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-medium">{t('observer.truth_fetch_title')}</span>
+        {truthFetch && <p role="status" className="text-xs text-muted-foreground">{t(truthFetch.status === 'unavailable' ? `observer.truth_fetch_${fetchReason}` : `observer.truth_fetch_${truthFetch.status}`)}</p>}
+        {truthFetch?.status !== 'ready' && <Button size="sm" variant="outline" disabled={truthFetch?.status === 'loading' || importState === 'loading'} onClick={() => void useLocalReviewStore.getState().fetchTruth(result.history_id)}>{t('observer.truth_fetch_retry')}</Button>}
+      </div>
+      <p className="text-xs text-muted-foreground">{t('observer.truth_fetch_hint')}</p>
       <label className="flex flex-wrap items-center gap-3">
         <span className="font-medium">{t('observer.truth_import')}</span>
         <input type="file" accept=".jsonl,.json,.mjai" aria-label={t('observer.truth_import')} disabled={importState === 'loading'} className="min-w-0 max-w-full text-xs file:mr-3 file:rounded file:border file:bg-background file:px-3 file:py-1" onChange={(event) => {

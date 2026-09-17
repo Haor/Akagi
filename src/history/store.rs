@@ -225,6 +225,32 @@ impl HistoryStore {
         }
     }
 
+    /// Cache a downloaded complete source before a model review has been run.
+    /// Preserve the original live log, and validate every public event and own tile.
+    pub fn save_local_review_source(&self, id: &str, source: &[MjaiEvent]) -> Result<()> {
+        let _g = self.write_lock.lock().expect("history write lock poisoned");
+        let record = self
+            .get(id)?
+            .context("history record was deleted during download")?;
+        let seat = record.our_seat.context("record has no player seat")?;
+        let original = self.get_events(id)?.context("history log missing")?;
+        let complete = super::local_review::parse_truth_source(&serde_json::to_string(source)?)?;
+        let visible = super::local_review::perspective(&complete, seat, record.num_players)?;
+        let original_visible =
+            super::local_review::perspective(&original, seat, record.num_players)?;
+        anyhow::ensure!(
+            serde_json::to_value(&visible)? == serde_json::to_value(&original_visible)?,
+            "downloaded source differs from the recorded public game"
+        );
+        let directory = self.root.join("local-review-sources");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("{id}.json"));
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec(&complete)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+
     /// Remove the record, its mjai.jsonl and any local review. Rewrites the index without
     /// the matching entry. Returns true if a record was removed.
     pub fn delete(&self, id: &str) -> Result<bool> {
@@ -442,6 +468,20 @@ mod tests {
         ];
         let public = super::super::local_review::perspective(&source, 0, 4).unwrap();
         store.append(&mk_record("TRUTH", 0), &public).unwrap();
+        store.save_local_review_source("TRUTH", &source).unwrap();
+        assert!(!store.root().join("local-reviews/TRUTH.json").exists());
+        assert!(store.save_local_review_source("TRUTH", &public).is_err());
+        let mut wrong_source = source.clone();
+        if let MjaiEvent::StartKyoku { dora_marker, .. } = &mut wrong_source[1] {
+            *dora_marker = "9s".into();
+        }
+        assert!(store
+            .save_local_review_source("TRUTH", &wrong_source)
+            .is_err());
+        assert_eq!(
+            store.get_local_review_source("TRUTH").unwrap().unwrap(),
+            source
+        );
         let result = super::super::local_review::LocalReviewResult {
             history_id: "TRUTH".into(),
             bot: "rin-native".into(),
@@ -465,6 +505,7 @@ mod tests {
         assert!(store.get_local_review_source("TRUTH").unwrap().is_some());
         store.delete("TRUTH").unwrap();
         assert!(store.get_local_review_source("TRUTH").unwrap().is_none());
+        assert!(store.save_local_review_source("TRUTH", &source).is_err());
         assert!(store
             .save_local_review_with_source(&result, Some(&source))
             .is_err());

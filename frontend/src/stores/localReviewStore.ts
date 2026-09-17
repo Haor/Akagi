@@ -57,6 +57,8 @@ export type LocalReviewResult = {
   decisions: LocalDecision[]
 }
 type Progress = { history_id: string; processed: number; total: number }
+export type TruthFetchResult = { status: 'ready' | 'unavailable'; reason?: string; review: LocalReviewResult | null }
+type TruthFetchState = { id: string; status: 'loading' | 'ready' | 'unavailable'; reason?: string }
 type LocalReviewStore = {
   selectedId: string | null
   runningId: string | null
@@ -64,27 +66,57 @@ type LocalReviewStore = {
   loading: boolean
   progress: Progress | null
   error: string | null
+  truthFetch: TruthFetchState | null
   open: (id: string) => Promise<void>
   start: (id: string) => Promise<void>
   importTruth: (id: string, content: string) => Promise<boolean>
+  fetchTruth: (id: string) => Promise<void>
 }
 
 export const useLocalReviewStore = create<LocalReviewStore>((set, get) => ({
-  selectedId: null, runningId: null, result: null, loading: false, progress: null, error: null,
+  selectedId: null, runningId: null, result: null, loading: false, progress: null, error: null, truthFetch: null,
+  fetchTruth: async (id) => {
+    const previous = get().result
+    if (get().selectedId !== id || previous?.history_id !== id
+      || (get().truthFetch?.id === id && get().truthFetch?.status === 'loading')) return
+    const request: TruthFetchState = { id, status: 'loading' }
+    set({ truthFetch: request })
+    const current = () => get().selectedId === id && get().result === previous && get().truthFetch === request
+    try {
+      const response = await invoke<TruthFetchResult>('fetch_local_review_truth', { id })
+      if (!current()) return
+      if (response.status === 'ready' && response.review?.history_id === id) {
+        set({ result: response.review, truthFetch: { id, status: 'ready' } })
+      } else {
+        set({ truthFetch: { id, status: 'unavailable', reason: response.status === 'unavailable' ? response.reason : 'download_failed' } })
+      }
+    } catch {
+      if (current()) set({ truthFetch: { id, status: 'unavailable', reason: 'download_failed' } })
+    } finally {
+      if (get().truthFetch === request) set({ truthFetch: null })
+    }
+  },
   importTruth: async (id, content) => {
     if (get().selectedId !== id) return false
+    if (get().truthFetch?.status === 'loading') set({ truthFetch: null })
     const previous = get().result
     const result = await invoke<LocalReviewResult>('import_local_review_truth', { id, content })
     if (get().selectedId !== id || get().result !== previous) return false
-    set({ result })
+    set({ result, truthFetch: { id, status: 'ready' } })
     return true
   },
   open: async (id) => {
-    if (get().selectedId === id) return
-    set({ selectedId: id, result: null, error: null, loading: true })
+    if (get().selectedId === id) {
+      void get().fetchTruth(id)
+      return
+    }
+    set({ selectedId: id, result: null, error: null, loading: true, truthFetch: null })
     try {
       const result = await invoke<LocalReviewResult | null>('get_local_review', { id })
-      if (get().selectedId === id) set({ result })
+      if (get().selectedId === id) {
+        set({ result })
+        if (result) void get().fetchTruth(id)
+      }
     } catch (error) {
       if (get().selectedId === id) set({ error: String(error) })
     } finally {
@@ -93,16 +125,19 @@ export const useLocalReviewStore = create<LocalReviewStore>((set, get) => ({
   },
   start: async (id) => {
     if (get().runningId) return
-    set({ runningId: id, selectedId: id, progress: null, error: null })
+    set({ runningId: id, selectedId: id, progress: null, error: null, truthFetch: null })
     let unlisten: (() => void) | undefined
     try {
       unlisten = await listen<Progress>('local-review-progress', (progress) => {
         if (progress.history_id === get().runningId) set({ progress })
       })
       const result = await invoke<LocalReviewResult>('local_review_history_game', { id })
-      if (get().selectedId === id) set({ result })
+      if (get().selectedId === id) {
+        set({ result })
+        void get().fetchTruth(id)
+      }
     } catch (error) {
-      set({ error: String(error) })
+      if (get().selectedId === id) set({ error: String(error) })
     } finally {
       unlisten?.()
       set({ runningId: null, progress: null })

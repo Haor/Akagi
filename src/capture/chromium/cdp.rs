@@ -509,6 +509,11 @@ async fn attach_page(
         .await
         .context("subscribe responseReceived")?;
 
+    // Subscribe first so frames remain buffered while the helper is installed.
+    if let Err(error) = crate::history::majsoul_download::install_transport(&page).await {
+        warn!("CDP: automatic review record transport unavailable: {error:#}");
+    }
+
     let handle = tokio::spawn(async move {
         loop {
             tokio::select! {

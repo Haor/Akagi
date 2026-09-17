@@ -1499,6 +1499,42 @@ pub async fn get_local_review(
     .map_err(|e| format!("{e:#}"))
 }
 
+/// Download status is separate from the cached review, so offline failures do
+/// not prevent playback or local inference.
+#[derive(serde::Serialize)]
+pub struct FetchLocalReviewTruthResult {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<crate::history::majsoul_download::TruthFetchError>,
+    review: Option<crate::history::local_review::LocalReviewResult>,
+}
+
+#[tauri::command]
+pub async fn fetch_local_review_truth(
+    id: String,
+    state: State<'_, AppState>,
+) -> CmdResult<FetchLocalReviewTruthResult> {
+    local_review_path(&state.history_store, &id)?;
+    match crate::history::majsoul_download::ensure_source(
+        state.history_store.clone(),
+        &state.autoplay_context,
+        &id,
+    )
+    .await
+    {
+        Ok(()) => Ok(FetchLocalReviewTruthResult {
+            status: "ready",
+            reason: None,
+            review: get_local_review(id, state).await?,
+        }),
+        Err(reason) => Ok(FetchLocalReviewTruthResult {
+            status: "unavailable",
+            reason: Some(reason),
+            review: None,
+        }),
+    }
+}
+
 /// Add labels from a matching complete MJAI record without rerunning inference.
 #[tauri::command]
 pub async fn import_local_review_truth(
@@ -1976,6 +2012,7 @@ macro_rules! ipc_handlers {
             $crate::ipc::commands::local_review_history_game,
             $crate::ipc::commands::get_local_review,
             $crate::ipc::commands::import_local_review_truth,
+            $crate::ipc::commands::fetch_local_review_truth,
             $crate::ipc::commands::get_local_review_frames,
             $crate::ipc::commands::native_api_review_status,
             $crate::ipc::commands::native_api_review_share,

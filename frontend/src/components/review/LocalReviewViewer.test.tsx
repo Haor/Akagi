@@ -42,7 +42,7 @@ function frame(hand: string[]) {
 }
 beforeEach(() => {
   mocks.invoke.mockResolvedValue([null, frame(['3p']), frame(['3p', '2s']), frame(['2s']), null, null])
-  useLocalReviewStore.setState({ selectedId: 'record', result, error: null })
+  useLocalReviewStore.setState({ selectedId: 'record', result, error: null, truthFetch: null })
 })
 afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
 
@@ -137,4 +137,26 @@ it('ignores a late import response after switching to another review', async () 
   expect(useLocalReviewStore.getState().result).toBe(other)
   expect(screen.queryByText(chinese.observer.truth_import_success)).toBeNull()
   expect(screen.queryByText(chinese.observer.truth_import_error)).toBeNull()
+})
+
+it('shows automatic retrieval progress and a specific retry reason while playback remains usable', async () => {
+  let resolve!: (value: unknown) => void
+  useLocalReviewStore.setState({ truthFetch: { id: 'record', status: 'unavailable', reason: 'missing_game_uuid' } })
+  mocks.invoke.mockImplementation((command: string) => command === 'fetch_local_review_truth'
+    ? new Promise((done) => { resolve = done })
+    : Promise.resolve([null, frame(['3p']), frame(['3p', '2s']), frame(['2s']), null, null]))
+  render(<StoredViewer />)
+  expect(screen.getByText(chinese.observer.truth_fetch_missing_game_uuid)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: chinese.observer.truth_fetch_retry }))
+  expect(screen.getByText(chinese.observer.truth_fetch_loading)).toBeTruthy()
+  expect((screen.getByRole('button', { name: chinese.observer.truth_fetch_retry }) as HTMLButtonElement).disabled).toBe(true)
+  await waitFor(() => expect((screen.getByRole('button', { name: '播放' }) as HTMLButtonElement).disabled).toBe(false))
+  await act(async () => resolve({ status: 'unavailable', reason: 'login_required', review: null }))
+  expect(screen.getByText(chinese.observer.truth_fetch_login_required)).toBeTruthy()
+  expect(useLocalReviewStore.getState().result).toBe(result)
+  fireEvent.click(screen.getByRole('button', { name: chinese.observer.truth_fetch_retry }))
+  await act(async () => resolve({ status: 'ready', review: result }))
+  expect(screen.getByText(chinese.observer.truth_fetch_ready)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: chinese.observer.truth_fetch_retry })).toBeNull()
+  expect(screen.getByLabelText(chinese.observer.truth_import)).toBeTruthy()
 })

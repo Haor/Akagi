@@ -62,7 +62,9 @@ export function ObserverDetails({ observer, truth }: { observer: ReadyObserver; 
               <th className="py-2 pr-3 font-medium whitespace-nowrap">{t('observer.action')}</th>
               {observer.opponent_order.map((seat, i) => <th key={seat} className="p-2 text-right font-medium whitespace-nowrap">{t(RELATIVE_NAMES[i])}</th>)}
               <th className="p-2 text-right font-medium whitespace-nowrap">{t('observer.any_ron')}</th>
+              <th className="p-2 text-right font-medium whitespace-nowrap">{t('observer.conditional_loss')}</th>
               <th className="py-2 pl-2 text-right font-medium whitespace-nowrap">{t('observer.expected_loss')}</th>
+              {comparing && <th className="py-2 pl-2 text-right font-medium whitespace-nowrap">{t('observer.recorded_loss')}</th>}
             </tr></thead>
             <tbody>{observer.candidates.map((candidate) => {
               const actual = truth?.candidates.find((item) => item.candidate_index === candidate.candidate_index)
@@ -81,9 +83,9 @@ export function ObserverDetails({ observer, truth }: { observer: ReadyObserver; 
               <td className="p-2 text-right whitespace-nowrap"><span className="font-mono">{percent(candidate.any_ron_probability)}</span>
                 {comparing && <span className="block text-muted-foreground">{t('observer.truth_value', { value: truthValue(actual?.any_ron) })}</span>}
               </td>
-              <td className="py-2 pl-2 text-right whitespace-nowrap"><span className="font-mono">{formatPoints(candidate.expected_loss_points)}</span>
-                {comparing && <span className="block text-muted-foreground">{t('observer.truth_recorded_loss', { value: loss })}</span>}
-              </td>
+              <td className="p-2 text-right font-mono whitespace-nowrap">{formatPoints(candidate.conditional_loss_points)}</td>
+              <td className="py-2 pl-2 text-right font-mono whitespace-nowrap">{formatPoints(candidate.expected_loss_points)}</td>
+              {comparing && <td className="py-2 pl-2 text-right whitespace-nowrap">{loss}</td>}
             </tr>})}</tbody>
           </table>
         </div>

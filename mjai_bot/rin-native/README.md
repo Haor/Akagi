@@ -130,7 +130,15 @@ Unplayed candidates have no recorded loss; eligibility does not mean the
 opponent actually chose to win. These privileged labels are computed after
 inference and never become Actor or observer inputs.
 
-For recordings that hide other hands, **Import complete MJAI** accepts a JSON
+With Mahjong Soul Chromium capture active from login, completed four-player
+games automatically fetch their complete record through the signed-in game's
+lobby connection. No external review API key is needed. Opening a local review
+also retries missing downloads and shows whether the source is ready. Keep the
+game browser signed in until the download finishes. Older records without a
+game UUID, other platforms, and unsupported or mismatched records show an
+explicit unavailable reason instead of fabricated labels.
+
+As a fallback, **Import complete MJAI** accepts a JSON
 array or JSONL containing all starting hands and draws for that same game.
 Its censored events must match the saved review exactly before it is accepted.
 The complete source is stored privately under `history/local-review-sources/`,
@@ -160,7 +168,11 @@ discard in `continuation`. The subsequent forced discard is marked
 card. Probabilities are policy preferences, not win probabilities.
 
 The Game page also includes an observation-head tile, which can be moved or
-hidden like other tiles. Actor-only bundles report
+hidden like other tiles. It retains the latest estimate between decisions and
+clears it on round/game transitions or bot changes. Probability-weighted loss
+is the chance of any opponent being able to ron multiplied by the estimated
+loss conditional on ron; it can be below 1,000 points. The conditional estimate
+and recorded actual loss are shown separately. Actor-only bundles report
 `meta.observer.status = "unavailable"` and `reason = "no_compatible_observer"`,
 bound to the current actor hash. The tile displays this status; it does not
 substitute predictions from unrelated observation-head weights.

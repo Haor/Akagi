@@ -82,6 +82,21 @@ Rules of the road:
 - To extend: add fields/variants in `schema/history.rs`, fill them in the
   bridge's StartGame emission, mirror in `frontend/src/types.ts`.
 
+## Complete local review sources
+
+`majsoul_download` consumes completed `HistoryEvent::Recorded` notifications
+and makes bounded retries through a Chromium lobby transport installed before
+login. The transport shares the existing authenticated socket, allocates its
+own request IDs, and consumes its private replies before the game dispatcher.
+It does not retain login credentials. Opening a cached local review retries a
+missing source through `fetch_local_review_truth` without blocking playback.
+
+Downloaded records must have the expected UUID and match the saved public
+events and player hand exactly. Full hands and draws are cached separately in
+`local-review-sources/<id>.json`; the original game stream stays censored.
+Deleting a history record removes both sources. Cached labels are reconstructed
+when loading the review, and neither source nor labels enter live inference.
+
 ## Adding a filter dimension
 
 1. Add the field to `HistoryFilter` (in `schema/history.rs`).
