@@ -113,7 +113,12 @@ function normaliseLayouts(parsed: unknown, fallback: Layouts): Layouts {
     }
     // Default tiles missing from save — add fresh (e.g. new tile shipped).
     for (const def of fresh[bp]) {
-      if (!savedByI.has(def.i)) merged.push({ ...def })
+      if (!savedByI.has(def.i)) {
+        // Append the new observation tile below a user's custom layout so
+        // grid collision handling cannot move an existing tile on upgrade.
+        const bottom = merged.reduce((end, item) => Math.max(end, item.y + item.h), 0)
+        merged.push({ ...def, ...(def.i === 'observation-head' ? { x: 0, y: bottom } : {}) })
+      }
     }
     fresh[bp] = merged
   }

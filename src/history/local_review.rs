@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::bot::BotRunner;
+use crate::game_state::mahgen_view::MahgenView;
+use crate::game_state::snapshot::GameStateSnapshot;
+use crate::game_state::tracker::GameTracker;
 use crate::schema::MjaiEvent;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +34,63 @@ pub struct LocalReviewResult {
     pub matched: usize,
     pub events: Vec<MjaiEvent>,
     pub decisions: Vec<LocalReviewDecision>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalReviewFrame {
+    pub game: GameStateSnapshot,
+    pub view: MahgenView,
+}
+
+/// Frame i shows the state immediately after applying recorded event i.
+/// Lifecycle gaps retain their indices as None instead of borrowing a board
+/// from a previous round. This tracker never subscribes to the live game bus.
+pub fn build_frames(review: &LocalReviewResult) -> Result<Vec<Option<LocalReviewFrame>>> {
+    if review.event_count != review.events.len() {
+        bail!("local review event count does not match its recorded stream");
+    }
+    let num_players = match review.events.first() {
+        Some(MjaiEvent::StartGame { num_players, .. }) => *num_players,
+        _ => bail!("local review has no start_game event"),
+    };
+    // Reapply the public boundary even for old or imported cached results;
+    // the saved review's seat owns this perspective, not a stale event id.
+    let events = perspective(&review.events, review.seat, num_players)?;
+    let mut tracker = GameTracker::new();
+    let mut in_round = false;
+    let mut frames = Vec::with_capacity(events.len());
+    for (index, event) in events.iter().enumerate() {
+        tracker
+            .handle(event)
+            .with_context(|| format!("local review frame failed at event {}", index + 1))?;
+        match event {
+            MjaiEvent::StartKyoku { .. } => in_round = true,
+            MjaiEvent::StartGame { .. } | MjaiEvent::EndKyoku | MjaiEvent::EndGame { .. } => {
+                in_round = false;
+            }
+            _ => {}
+        }
+        let frame = if in_round {
+            tracker.snapshot().map(|mut game| {
+                // The view encoder already hides other hands. Keep the raw
+                // snapshot equally private for every frontend consumer.
+                for player in &mut game.players {
+                    if player.seat != review.seat {
+                        player.tehai.fill("?".into());
+                        if player.drawn_tile.is_some() {
+                            player.drawn_tile = Some("?".into());
+                        }
+                    }
+                }
+                let view = MahgenView::from_snapshot(&game);
+                LocalReviewFrame { game, view }
+            })
+        } else {
+            None
+        };
+        frames.push(frame);
+    }
+    Ok(frames)
 }
 
 /// Validate before handing any event to the actor. An observer log cannot be
@@ -311,6 +371,133 @@ mod tests {
             MjaiEvent::EndKyoku,
             MjaiEvent::end_game(),
         ]
+    }
+
+    fn frame_review() -> LocalReviewResult {
+        let hand = [
+            "1m", "1m", "3m", "4m", "7m", "8m", "9m", "1p", "2p", "3p", "E", "E", "S",
+        ];
+        let opening = ev(json!({
+            "type":"start_kyoku","bakaze":"E","kyoku":1,"honba":0,"kyotaku":0,
+            "oya":1,"scores":[25000,25000,25000,25000],"dora_marker":"2m",
+            "tehais":[vec!["9s";13],vec!["9s";13],hand.to_vec(),vec!["9s";13]]
+        }));
+        let mut next_round = opening.clone();
+        if let MjaiEvent::StartKyoku { kyoku, oya, .. } = &mut next_round {
+            *kyoku = 2;
+            *oya = 2;
+        }
+        let events = vec![
+            // Deliberately inconsistent id: the result's seat is authoritative.
+            ev(json!({"type":"start_game","names":["a","b","c","d"],"id":0})),
+            opening,
+            ev(json!({"type":"tsumo","actor":1,"pai":"1m"})),
+            ev(json!({"type":"dahai","actor":1,"pai":"1m","tsumogiri":false})),
+            ev(json!({"type":"pon","actor":2,"target":1,"pai":"1m","consumed":["1m","1m"]})),
+            ev(json!({"type":"dahai","actor":2,"pai":"S","tsumogiri":false})),
+            ev(json!({"type":"tsumo","actor":3,"pai":"9p"})),
+            ev(json!({"type":"dahai","actor":3,"pai":"9p","tsumogiri":true})),
+            ev(json!({"type":"ryukyoku","deltas":[0,0,0,0]})),
+            MjaiEvent::EndKyoku,
+            next_round,
+            ev(json!({"type":"tsumo","actor":2,"pai":"5sr"})),
+            ev(json!({"type":"dahai","actor":2,"pai":"5sr","tsumogiri":true})),
+            MjaiEvent::EndKyoku,
+            MjaiEvent::end_game(),
+        ];
+        LocalReviewResult {
+            history_id: "frames".into(),
+            bot: "rin-native".into(),
+            created_at: String::new(),
+            seat: 2,
+            event_count: events.len(),
+            compared: 0,
+            matched: 0,
+            events,
+            decisions: vec![],
+        }
+    }
+
+    #[test]
+    fn frames_follow_event_indices_and_clear_the_board_between_rounds() {
+        let review = frame_review();
+        let original = serde_json::to_value(&review).unwrap();
+        let frames = build_frames(&review).unwrap();
+        assert_eq!(frames.len(), review.events.len());
+        assert!(
+            frames[0].is_none(),
+            "start_game must not expose the tracker's synthetic initial deal"
+        );
+        let initial = frames[1].as_ref().unwrap();
+        assert_eq!(initial.game.our_seat, Some(2));
+        assert_eq!(initial.game.players[2].tehai.len(), 13);
+        assert!(initial
+            .game
+            .players
+            .iter()
+            .all(|player| player.river.is_empty()));
+        assert!(
+            frames[8].is_some(),
+            "keep the final round board through ryukyoku"
+        );
+        assert!(frames[9].is_none());
+        let next = frames[10].as_ref().unwrap();
+        assert_eq!(next.game.kyoku, 2);
+        assert!(next
+            .game
+            .players
+            .iter()
+            .all(|player| player.river.is_empty() && player.melds.is_empty()));
+        assert_eq!(frames[11].as_ref().unwrap().game.players[2].tehai.len(), 14);
+        assert_eq!(frames[12].as_ref().unwrap().game.players[2].tehai.len(), 13);
+        assert!(frames[13].is_none());
+        assert!(frames[14].is_none());
+        assert_eq!(serde_json::to_value(&review).unwrap(), original);
+    }
+
+    #[test]
+    fn frames_reuse_called_river_and_meld_rendering_without_revealing_other_hands() {
+        let frames = build_frames(&frame_review()).unwrap();
+        let before_call = frames[3].as_ref().unwrap();
+        assert!(!before_call.game.players[1].river[0].called);
+        assert!(!before_call.view.players[1].river.is_empty());
+        let after_call = frames[4].as_ref().unwrap();
+        assert!(after_call.game.players[1].river[0].called);
+        assert!(after_call.view.players[1].river.is_empty());
+        assert_eq!(after_call.game.players[2].melds[0].from_who, 1);
+        assert_eq!(after_call.view.players[2].melds.len(), 1);
+        assert_eq!(after_call.game.players[2].tehai.len(), 11);
+        assert_eq!(frames[5].as_ref().unwrap().game.players[2].tehai.len(), 10);
+        for frame in frames.iter().flatten() {
+            for player in &frame.game.players {
+                if player.seat == 2 {
+                    continue;
+                }
+                assert!(player.tehai.iter().all(|tile| tile == "?"));
+                assert!(player.drawn_tile.as_deref().is_none_or(|tile| tile == "?"));
+                let backs = frame.view.players[player.seat as usize]
+                    .hand
+                    .strip_suffix('z')
+                    .unwrap();
+                assert!(backs.chars().all(|tile| tile == '0'));
+                assert_eq!(backs.len(), player.tehai.len());
+            }
+        }
+    }
+
+    #[test]
+    fn frames_reject_broken_index_metadata_and_invalid_perspectives() {
+        let mut review = frame_review();
+        review.event_count -= 1;
+        assert!(build_frames(&review).is_err());
+        review.event_count += 1;
+        review.seat = 4;
+        assert!(build_frames(&review).is_err());
+        review.seat = 2;
+        if let MjaiEvent::StartKyoku { tehais, .. } = &mut review.events[1] {
+            tehais[2].fill("?".into());
+        }
+        assert!(build_frames(&review).is_err());
     }
 
     #[test]

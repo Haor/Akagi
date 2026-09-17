@@ -71,7 +71,9 @@ class ReviewableEngine(SemanticRINMjaiEngine):
     def _metadata(self, candidates, *, continuation=False):
         identity = model_identity(self.predictor, self)
         return {"decision": True, "continuation": continuation, "model_identity": identity,
-                "candidates": candidates, "show": show_candidates(candidates, identity["model_id"])}
+                "candidates": candidates, "show": show_candidates(candidates, identity["model_id"]),
+                "observer": {"status": "unavailable", "reason": "no_compatible_observer",
+                             "actor_identity": identity["actor_sha256"], "observer_identity": None}}
 
     def react_batch(self, game_states):
         self._decision_metadata = {}

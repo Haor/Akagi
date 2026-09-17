@@ -124,6 +124,19 @@ class SessionTests(unittest.TestCase):
                               "meta": {"hidden": True}, "wall": ["C"], "ura_markers": ["P"]}, 0)
         self.assertEqual(event, {"type": "tsumo", "actor": 1, "pai": "?"})
 
+    def test_actor_only_bundle_reports_missing_observer_with_current_identity(self):
+        predictor = Predictor()
+        predictor.manifest = {**predictor.manifest, "actor_sha256": "a" * 64}
+        session = Session(predictor, 0)
+        events = opening()
+        self.assertEqual(session.react(events[:1]), {"type": "none"})
+        response = session.react(events[1:])
+        self.assertTrue(response["meta"]["decision"])
+        self.assertEqual(response["meta"]["observer"], {
+            "status": "unavailable", "reason": "no_compatible_observer",
+            "actor_identity": predictor.manifest["actor_sha256"], "observer_identity": None,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

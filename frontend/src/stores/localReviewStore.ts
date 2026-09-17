@@ -10,6 +10,9 @@ export type ReviewAction = {
   scores?: number[]
   deltas?: number[]
   dora_marker?: string
+  bakaze?: string
+  kyoku?: number
+  honba?: number
 }
 export type LocalDecision = {
   event_index: number

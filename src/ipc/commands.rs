@@ -1480,6 +1480,22 @@ pub async fn get_local_review(
     }
 }
 
+/// Reconstruct saved review boards without starting inference or touching the
+/// shared live tracker. Null entries preserve event indices outside a round.
+#[tauri::command]
+pub async fn get_local_review_frames(
+    id: String,
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<Option<crate::history::local_review::LocalReviewFrame>>> {
+    let review = get_local_review(id, state)
+        .await?
+        .ok_or("local review not found; review this game first")?;
+    tokio::task::spawn_blocking(move || crate::history::local_review::build_frames(&review))
+        .await
+        .map_err(|e| format!("local review frames join error: {e}"))?
+        .map_err(|e| format!("{e:#}"))
+}
+
 /// Uses a separate local RIN process; no API client, live tracker, active bot
 /// setting, or live response bus participates in the review.
 #[tauri::command]
@@ -1913,6 +1929,7 @@ macro_rules! ipc_handlers {
             $crate::ipc::commands::native_api_review_history_game,
             $crate::ipc::commands::local_review_history_game,
             $crate::ipc::commands::get_local_review,
+            $crate::ipc::commands::get_local_review_frames,
             $crate::ipc::commands::native_api_review_status,
             $crate::ipc::commands::native_api_review_share,
             $crate::ipc::commands::native_api_list_shares,

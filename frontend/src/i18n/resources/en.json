@@ -152,18 +152,24 @@
     "local_caveat": "Agreement is a comparison with this model, not a strength score. Windows settled by another player's claim can be ambiguous and are excluded from the agreement rate. Forced riichi continuations are excluded.",
     "local_differences": "Show different moves only",
     "local_actions": {
-        "none": "Pass",
-        "tsumo": "Draw",
-        "dahai": "Discard",
-        "reach": "Riichi",
-        "chi": "Chi",
-        "pon": "Pon",
-        "daiminkan": "Open kan",
-        "ankan": "Closed kan",
-        "kakan": "Added kan",
-        "hora": "Win",
-        "ryukyoku": "Drawn round",
-        "kita": "Kita"
+      "none": "Pass",
+      "tsumo": "Draw",
+      "dahai": "Discard",
+      "reach": "Riichi",
+      "chi": "Chi",
+      "pon": "Pon",
+      "daiminkan": "Open kan",
+      "ankan": "Closed kan",
+      "kakan": "Added kan",
+      "hora": "Win",
+      "ryukyoku": "Drawn round",
+      "kita": "Kita",
+      "start_game": "Game start",
+      "start_kyoku": "Round start",
+      "reach_accepted": "Riichi accepted",
+      "dora": "New dora indicator",
+      "end_kyoku": "Round end",
+      "end_game": "Game end"
     },
     "title": "Game Review",
     "beta": "Beta",
@@ -218,7 +224,25 @@
     "start_review": "Start review",
     "confirm_hint": "Confirm the model, then start the review.",
     "review_this_game": "Review this game",
-    "open_review": "Open review"
+    "open_review": "Open review",
+    "replay_title": "Game replay",
+    "replay_round": "Select round",
+    "replay_honba": "{{count}} honba",
+    "replay_visibility": "Replay from the recorded player’s perspective; opponents’ hands stay hidden.",
+    "replay_loading": "Loading the table…",
+    "replay_progress": "Replay progress",
+    "replay_previous_decision": "Previous decision",
+    "replay_next_decision": "Next decision",
+    "replay_previous": "Previous step",
+    "replay_next": "Next step",
+    "replay_play": "Play",
+    "replay_pause": "Pause",
+    "replay_speed": "Playback speed",
+    "replay_actual": "Recorded move",
+    "replay_recommended": "RIN suggestion",
+    "replay_no_decision": "No decision was evaluated here. Continue playback or jump to the next decision.",
+    "replay_decisions": "Decisions",
+    "replay_no_differences": "No decisions match this filter."
   },
   "logs": {
     "title": "Logs",
@@ -339,7 +363,8 @@
     "proxy_control": "Proxy",
     "dora": "Dora",
     "phase": "Phase",
-    "hide_x": "Hide {{title}}"
+    "hide_x": "Hide {{title}}",
+    "observation_head": "Observation head"
   },
   "common": {
     "live": "LIVE",
@@ -949,5 +974,10 @@
   "overlay": {
     "close": "Close overlay",
     "empty": "Waiting for the bot…"
+  },
+  "observer": {
+    "waiting": "Waiting for a game to start.",
+    "not_provided": "The current bot has not provided observation-head output.",
+    "unavailable": "The current RIN installation does not include observation-head weights compatible with its actor."
   }
 }

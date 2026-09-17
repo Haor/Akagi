@@ -67,8 +67,12 @@ adapter.
 
 Open Akagi's **Game Review** page and choose **Local RIN** to review a complete
 four-player history recording. No external API key is required. Results are
-saved locally and show the recorded move, recommendation, hand, public table,
-and candidate probabilities. The live bot keeps its own independent session.
+saved locally and show the recorded move, recommendation, and candidate
+probabilities alongside a synchronized table. Step through recorded events,
+play them at an adjustable speed, or jump to a round or decision. The table
+uses Akagi's live-game renderer with a separate replay tracker; opponents'
+hands stay hidden. Chinese locales display tile names in Chinese.
+The live bot keeps its own independent session.
 Use **Cloud Review** only when you intend to submit a recording to the configured
 external service.
 
@@ -91,6 +95,12 @@ MJAI `action`, normalized atomic `probability`, summed `protocol_probability`,
 discard in `continuation`. The subsequent forced discard is marked
 `meta.continuation = true`. `meta.show` provides Akagi's structured candidate
 card. Probabilities are policy preferences, not win probabilities.
+
+The Game page also includes an observation-head tile, which can be moved or
+hidden like other tiles. Actor-only bundles report
+`meta.observer.status = "unavailable"` and `reason = "no_compatible_observer"`,
+bound to the current actor hash. The tile displays this status; it does not
+substitute predictions from unrelated observation-head weights.
 
 The service is shared only when settings, model bytes, Python identity,
 Libriichi binary, and RIN source bytes match. Endpoint tokens and logs live in

@@ -152,18 +152,24 @@
     "local_caveat": "一致率はモデルとの比較であり、実力の評価ではありません。他家の優先する鳴きや和了により不明な判断は集計から除外します。リーチ後の強制打牌は重複集計しません。",
     "local_differences": "相違する手のみ表示",
     "local_actions": {
-        "none": "パス",
-        "tsumo": "ツモ",
-        "dahai": "打牌",
-        "reach": "リーチ",
-        "chi": "チー",
-        "pon": "ポン",
-        "daiminkan": "大明槓",
-        "ankan": "暗槓",
-        "kakan": "加槓",
-        "hora": "和了",
-        "ryukyoku": "流局",
-        "kita": "抜き北"
+      "none": "パス",
+      "tsumo": "ツモ",
+      "dahai": "打牌",
+      "reach": "リーチ",
+      "chi": "チー",
+      "pon": "ポン",
+      "daiminkan": "大明槓",
+      "ankan": "暗槓",
+      "kakan": "加槓",
+      "hora": "和了",
+      "ryukyoku": "流局",
+      "kita": "抜き北",
+      "start_game": "対局開始",
+      "start_kyoku": "局開始",
+      "reach_accepted": "立直成立",
+      "dora": "新ドラ表示",
+      "end_kyoku": "局終了",
+      "end_game": "対局終了"
     },
     "title": "対局検討",
     "beta": "Beta",
@@ -218,7 +224,25 @@
     "start_review": "検討を開始",
     "confirm_hint": "使用するモデルを確認して検討を開始します。",
     "review_this_game": "この対局を検討",
-    "open_review": "検討を開く"
+    "open_review": "検討を開く",
+    "replay_title": "対局リプレイ",
+    "replay_round": "局を選択",
+    "replay_honba": "{{count}} 本場",
+    "replay_visibility": "記録者の視点で再生します。他家の手牌は表示しません。",
+    "replay_loading": "牌卓を読み込み中…",
+    "replay_progress": "再生位置",
+    "replay_previous_decision": "前の判断",
+    "replay_next_decision": "次の判断",
+    "replay_previous": "前の一手",
+    "replay_next": "次の一手",
+    "replay_play": "再生",
+    "replay_pause": "一時停止",
+    "replay_speed": "再生速度",
+    "replay_actual": "実際の行動",
+    "replay_recommended": "RIN の推奨",
+    "replay_no_decision": "この時点に評価対象の判断はありません。再生を続けるか、次の判断へ進んでください。",
+    "replay_decisions": "判断一覧",
+    "replay_no_differences": "条件に一致する判断はありません。"
   },
   "logs": {
     "title": "ログ",
@@ -339,7 +363,8 @@
     "proxy_control": "プロキシ",
     "dora": "ドラ",
     "phase": "フェーズ",
-    "hide_x": "{{title}} を非表示"
+    "hide_x": "{{title}} を非表示",
+    "observation_head": "観測ヘッド"
   },
   "common": {
     "live": "ライブ",
@@ -949,5 +974,10 @@
   "overlay": {
     "close": "オーバーレイを閉じる",
     "empty": "AI の判断を待っています…"
+  },
+  "observer": {
+    "waiting": "対局の開始を待っています。",
+    "not_provided": "現在の Bot は観測ヘッドの出力を提供していません。",
+    "unavailable": "現在の RIN には Actor に対応する観測ヘッドの重みが含まれていません。"
   }
 }

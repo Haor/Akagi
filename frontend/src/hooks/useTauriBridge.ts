@@ -20,6 +20,7 @@ import { useBotStore } from '@/stores/botStore'
 import { useCaptureStore } from '@/stores/captureStore'
 import { useNotifyStore } from '@/stores/notifyStore'
 import { useApiStatusStore } from '@/stores/apiStatusStore'
+import { useObserverStore } from '@/stores/observerStore'
 import { useInstallStore } from '@/stores/installStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useHistoryStore } from '@/stores/historyStore'
@@ -43,7 +44,7 @@ export function useTauriBridge() {
     const unlistens: Array<() => void> = []
     let cancelled = false
 
-    const refreshGame = async () => {
+    const refreshGame = async (hydrateObserver = false) => {
       try {
         const [snap, view] = await Promise.all([
           invoke<GameStateSnapshot | null>('get_game_snapshot'),
@@ -52,6 +53,7 @@ export function useTauriBridge() {
         if (cancelled) return
         useGameStore.getState().setGame(snap)
         useGameStore.getState().setView(view)
+        if (hydrateObserver) useObserverStore.getState().hydrateGame(snap)
       } catch {
         /* ignore: backend may not be ready */
       }
@@ -64,11 +66,12 @@ export function useTauriBridge() {
         useConfigStore.getState().setConfig(status.config)
         useConfigStore.getState().setLogDir(status.log_dir)
         useBotStore.getState().setStatus(status.bot_status)
+        useObserverStore.getState().hydrateBot(status.bot_status)
         useCaptureStore.getState().set(status.capture_status)
       } catch {
         /* ignore */
       }
-      await refreshGame()
+      await refreshGame(true)
       try {
         const a = await invoke<AnalysisResult | null>('get_analysis')
         if (!cancelled) useAnalysisStore.getState().set(a)
@@ -98,6 +101,7 @@ export function useTauriBridge() {
     listen<MjaiEvent>('mjai-event', (e) => {
       // Fresh game: clear any lingering online-API outage from the last one.
       if (e.type === 'start_game') useApiStatusStore.getState().reset()
+      useObserverStore.getState().onGameEvent(e)
       useNotifyStore.getState().pushEvent(e)
       void refreshGame()
     }).then((u) => unlistens.push(u))
@@ -108,6 +112,7 @@ export function useTauriBridge() {
 
     listen<BotStatus>('bot-status', (s) => {
       useBotStore.getState().setStatus(s)
+      useObserverStore.getState().onBotStatus(s)
     }).then((u) => unlistens.push(u))
 
     listen<CaptureStatus>('capture-status', (s) => {
@@ -116,6 +121,7 @@ export function useTauriBridge() {
 
     listen<BotResponse>('bot-response', (r) => {
       useNotifyStore.getState().pushResponse(r)
+      useObserverStore.getState().onResponse(r)
     }).then((u) => unlistens.push(u))
 
     // The overlay window can turn itself off (its × button). Mirror that back

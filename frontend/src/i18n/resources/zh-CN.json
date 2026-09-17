@@ -152,18 +152,24 @@
     "local_caveat": "一致率只比较实际动作与该模型的选择，不代表牌力评分。他家优先鸣牌或和牌时，无法确定的动作不计入一致率；立直后的强制弃牌不重复计数。",
     "local_differences": "只看不同动作",
     "local_actions": {
-        "none": "过",
-        "tsumo": "摸牌",
-        "dahai": "打牌",
-        "reach": "立直",
-        "chi": "吃",
-        "pon": "碰",
-        "daiminkan": "大明杠",
-        "ankan": "暗杠",
-        "kakan": "加杠",
-        "hora": "和牌",
-        "ryukyoku": "流局",
-        "kita": "拔北"
+      "none": "过",
+      "tsumo": "摸牌",
+      "dahai": "打牌",
+      "reach": "立直",
+      "chi": "吃",
+      "pon": "碰",
+      "daiminkan": "大明杠",
+      "ankan": "暗杠",
+      "kakan": "加杠",
+      "hora": "和牌",
+      "ryukyoku": "流局",
+      "kita": "拔北",
+      "start_game": "对局开始",
+      "start_kyoku": "开局",
+      "reach_accepted": "立直成立",
+      "dora": "翻开宝牌指示牌",
+      "end_kyoku": "本局结束",
+      "end_game": "对局结束"
     },
     "title": "对局复盘",
     "beta": "Beta",
@@ -218,7 +224,25 @@
     "start_review": "开始复盘",
     "confirm_hint": "确认使用的模型后开始复盘。",
     "review_this_game": "复盘此对局",
-    "open_review": "打开复盘"
+    "open_review": "打开复盘",
+    "replay_title": "对局回放",
+    "replay_round": "选择局数",
+    "replay_honba": "{{count}} 本场",
+    "replay_visibility": "以记录者视角回放，对手手牌保持隐藏。",
+    "replay_loading": "正在载入牌桌…",
+    "replay_progress": "回放进度",
+    "replay_previous_decision": "上个决策",
+    "replay_next_decision": "下个决策",
+    "replay_previous": "上一步",
+    "replay_next": "下一步",
+    "replay_play": "播放",
+    "replay_pause": "暂停",
+    "replay_speed": "播放速度",
+    "replay_actual": "实际操作",
+    "replay_recommended": "RIN 建议",
+    "replay_no_decision": "此时没有需要评估的决策，可继续播放或跳到下个决策。",
+    "replay_decisions": "决策列表",
+    "replay_no_differences": "没有符合筛选条件的决策。"
   },
   "logs": {
     "title": "日志",
@@ -339,7 +363,8 @@
     "proxy_control": "代理",
     "dora": "宝牌",
     "phase": "阶段",
-    "hide_x": "隐藏 {{title}}"
+    "hide_x": "隐藏 {{title}}",
+    "observation_head": "观察头"
   },
   "common": {
     "live": "实时",
@@ -949,5 +974,10 @@
   "overlay": {
     "close": "关闭悬浮窗",
     "empty": "等待 AI 建议…"
+  },
+  "observer": {
+    "waiting": "等待对局开始。",
+    "not_provided": "当前 Bot 未提供观察头输出。",
+    "unavailable": "当前 RIN 安装包未包含与 Actor 配套的观察头权重。"
   }
 }

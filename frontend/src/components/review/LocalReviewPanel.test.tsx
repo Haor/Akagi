@@ -8,7 +8,7 @@ import type { GameRecord } from '@/types'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }))
 vi.mock('@/lib/tauri', () => ({ invoke: mocks.invoke, listen: async () => () => {} }))
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }) }))
 vi.mock('@/components/Mahgen', () => ({ Mahgen: ({ seq }: { seq: string }) => <span>{seq}</span> }))
 
 beforeEach(() => {
