@@ -21,6 +21,8 @@ pub struct LocalReviewDecision {
     pub recommended: MjaiEvent,
     pub matches: Option<bool>,
     pub meta: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observer_truth: Option<super::observer_truth::ObserverTruth>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,89 @@ pub struct LocalReviewResult {
 pub struct LocalReviewFrame {
     pub game: GameStateSnapshot,
     pub view: MahgenView,
+}
+
+/// Privileged labels are attached only after the recorded public stream has
+/// finished inference. They are never included in `events` or bot metadata.
+pub fn attach_observer_truth(review: &mut LocalReviewResult, source: &[MjaiEvent]) -> Result<()> {
+    validate_truth_source(review, source)?;
+    let truth = super::observer_truth::build_truth(source, &review.decisions, review.seat)?;
+    if truth.len() != review.decisions.len() {
+        bail!("observer truth does not match the review decision count");
+    }
+    for (decision, truth) in review.decisions.iter_mut().zip(truth) {
+        if truth.event_index != decision.event_index {
+            bail!("observer truth does not match the review event index");
+        }
+        decision.observer_truth = Some(truth);
+    }
+    Ok(())
+}
+
+/// Import labels only for the same game and perspective. The original review
+/// events remain unchanged; the private source is stored separately.
+pub fn validate_truth_source(review: &LocalReviewResult, source: &[MjaiEvent]) -> Result<()> {
+    if review.event_count != review.events.len() || source.len() != review.events.len() {
+        bail!("truth source event count differs from this game");
+    }
+    let visible = perspective(source, review.seat, 4)?;
+    if serde_json::to_value(&visible)? != serde_json::to_value(&review.events)? {
+        bail!("truth source does not match this game's recorded public actions and hand");
+    }
+    Ok(())
+}
+
+/// Accept a complete MJAI JSON array or JSONL, with a bounded payload and no
+/// silently skipped malformed lines. Import does not run a bot or use a network.
+pub fn parse_truth_source(content: &str) -> Result<Vec<MjaiEvent>> {
+    if content.len() > 8 * 1024 * 1024 {
+        bail!("truth source exceeds the 8 MiB limit");
+    }
+    let content = content.trim().trim_start_matches('\u{feff}').trim();
+    let events: Vec<MjaiEvent> = if content.starts_with('[') {
+        serde_json::from_str(content).context("decode MJAI array")?
+    } else {
+        content
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
+            .map(|(index, line)| {
+                serde_json::from_str(line)
+                    .with_context(|| format!("invalid MJAI line {}", index + 1))
+            })
+            .collect::<Result<_>>()?
+    };
+    if events.is_empty() || events.len() > 50_000 {
+        bail!("truth source must contain between 1 and 50000 events");
+    }
+    for event in &events {
+        match event {
+            MjaiEvent::StartKyoku {
+                tehais,
+                num_players,
+                ..
+            } => {
+                if *num_players != 4
+                    || tehais.len() != 4
+                    || tehais.iter().any(|hand| {
+                        hand.len() != 13
+                            || hand.iter().any(|tile| {
+                                crate::analysis::tile::Tile34::from_mjai(tile).is_none()
+                            })
+                    })
+                {
+                    bail!("truth source must include all four complete starting hands");
+                }
+            }
+            MjaiEvent::Tsumo { pai, .. }
+                if crate::analysis::tile::Tile34::from_mjai(pai).is_none() =>
+            {
+                bail!("truth source must include every player's actual draws");
+            }
+            _ => {}
+        }
+    }
+    Ok(events)
 }
 
 /// Frame i shows the state immediately after applying recorded event i.
@@ -329,13 +414,14 @@ pub async fn replay(
                 recommended: response.action,
                 matches,
                 meta: response.meta,
+                observer_truth: None,
             });
         }
         if index % 20 == 0 || index + 1 == visible.len() {
             progress(index + 1, visible.len());
         }
     }
-    Ok(LocalReviewResult {
+    let mut result = LocalReviewResult {
         history_id,
         bot,
         created_at: chrono::Utc::now().to_rfc3339(),
@@ -345,7 +431,9 @@ pub async fn replay(
         matched: decisions.iter().filter(|d| d.matches == Some(true)).count(),
         events: visible,
         decisions,
-    })
+    };
+    attach_observer_truth(&mut result, events)?;
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -501,6 +589,45 @@ mod tests {
     }
 
     #[test]
+    fn truth_import_requires_the_same_public_game_and_preserves_the_review() {
+        let mut review = frame_review();
+        let source = review.events.clone();
+        review.events = perspective(&source, review.seat, 4).unwrap();
+        let public_before = serde_json::to_value(&review.events).unwrap();
+        assert!(validate_truth_source(&review, &source).is_ok());
+        let mut different = source.clone();
+        if let MjaiEvent::Dahai { pai, .. } = &mut different[3] {
+            *pai = "9m".into();
+        }
+        assert!(attach_observer_truth(&mut review, &different).is_err());
+        assert!(validate_truth_source(&review, &source[..source.len() - 1]).is_err());
+        assert_eq!(serde_json::to_value(&review.events).unwrap(), public_before);
+        attach_observer_truth(&mut review, &source).unwrap();
+        assert_eq!(serde_json::to_value(&review.events).unwrap(), public_before);
+    }
+
+    #[test]
+    fn truth_import_parses_both_formats_and_rejects_partial_or_malformed_records() {
+        let source = stream();
+        let array = serde_json::to_string(&source).unwrap();
+        let jsonl = source
+            .iter()
+            .map(|event| serde_json::to_string(event).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(parse_truth_source(&array).unwrap(), source);
+        assert_eq!(
+            parse_truth_source(&format!("\u{feff}{jsonl}\n")).unwrap(),
+            source
+        );
+        assert!(parse_truth_source(&format!("{jsonl}\nnot JSON")).is_err());
+        assert!(parse_truth_source("").is_err());
+        assert!(parse_truth_source(&" ".repeat(8 * 1024 * 1024 + 1)).is_err());
+        let censored = perspective(&source, 0, 4).unwrap();
+        assert!(parse_truth_source(&serde_json::to_string(&censored).unwrap()).is_err());
+    }
+
+    #[test]
     fn projection_hides_other_hands_draws_and_predicted_reach_tile() {
         let mut events = stream();
         events.insert(4, ev(json!({"type":"reach","actor":1,"pai":"5mr"})));
@@ -586,5 +713,14 @@ mod tests {
         assert_eq!(result.decisions[1].hand.len(), 14);
         assert!(result.decisions[0].matches.unwrap());
         assert!(!result.decisions[1].matches.unwrap());
+        assert!(result
+            .decisions
+            .iter()
+            .all(|decision| decision.observer_truth.is_some()));
+        assert!(result.decisions.iter().all(|decision| decision
+            .meta
+            .as_ref()
+            .is_none_or(|meta| meta.get("observer_truth").is_none())));
+        assert_eq!(result.events, bot.seen);
     }
 }

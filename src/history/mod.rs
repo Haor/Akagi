@@ -22,6 +22,7 @@
 
 pub mod aggregator;
 pub mod local_review;
+pub mod observer_truth;
 pub mod recorder;
 pub mod store;
 

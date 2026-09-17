@@ -14,6 +14,19 @@ export type ReviewAction = {
   kyoku?: number
   honba?: number
 }
+export type ObserverTruth = {
+  schema_version: 'akagi.observer-truth.v1'
+  event_index: number
+  opponents: { seat: number; tenpai: boolean | null; waits: string[] | null; furiten: boolean | null; reason: string | null }[]
+  candidates: {
+    candidate_index: number
+    // Each ron entry belongs to the corresponding truth.opponents seat.
+    ron: (boolean | null)[]
+    any_ron: boolean | null
+    actual_discard: boolean
+    deal_in_points: number | null
+  }[]
+}
 export type LocalDecision = {
   event_index: number
   round: string
@@ -23,6 +36,7 @@ export type LocalDecision = {
   actual: ReviewAction | null
   recommended: ReviewAction
   matches: boolean | null
+  observer_truth?: ObserverTruth | null
   meta: {
     decision?: boolean
     continuation?: boolean
@@ -52,10 +66,19 @@ type LocalReviewStore = {
   error: string | null
   open: (id: string) => Promise<void>
   start: (id: string) => Promise<void>
+  importTruth: (id: string, content: string) => Promise<boolean>
 }
 
 export const useLocalReviewStore = create<LocalReviewStore>((set, get) => ({
   selectedId: null, runningId: null, result: null, loading: false, progress: null, error: null,
+  importTruth: async (id, content) => {
+    if (get().selectedId !== id) return false
+    const previous = get().result
+    const result = await invoke<LocalReviewResult>('import_local_review_truth', { id, content })
+    if (get().selectedId !== id || get().result !== previous) return false
+    set({ result })
+    return true
+  },
   open: async (id) => {
     if (get().selectedId === id) return
     set({ selectedId: id, result: null, error: null, loading: true })

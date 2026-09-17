@@ -179,9 +179,28 @@ impl HistoryStore {
     /// Save only while the source record exists. Sharing the deletion lock
     /// prevents a finishing review from recreating a deleted game's data.
     pub fn save_local_review(&self, result: &super::local_review::LocalReviewResult) -> Result<()> {
+        self.save_local_review_with_source(result, None)
+    }
+
+    /// Optional complete hands are private review material, never the live log.
+    /// The same deletion lock protects the imported source and its cached labels.
+    pub fn save_local_review_with_source(
+        &self,
+        result: &super::local_review::LocalReviewResult,
+        source: Option<&[MjaiEvent]>,
+    ) -> Result<()> {
         let _g = self.write_lock.lock().expect("history write lock poisoned");
         if self.get(&result.history_id)?.is_none() {
             anyhow::bail!("history record was deleted during review");
+        }
+        if let Some(source) = source {
+            super::local_review::validate_truth_source(result, source)?;
+            let directory = self.root.join("local-review-sources");
+            fs::create_dir_all(&directory)?;
+            let path = directory.join(format!("{}.json", result.history_id));
+            let temporary = path.with_extension("json.tmp");
+            fs::write(&temporary, serde_json::to_vec(source)?)?;
+            fs::rename(temporary, path)?;
         }
         let directory = self.root.join("local-reviews");
         fs::create_dir_all(&directory)?;
@@ -190,6 +209,20 @@ impl HistoryStore {
         fs::write(&temporary, serde_json::to_vec(result)?)?;
         fs::rename(temporary, path)?;
         Ok(())
+    }
+
+    pub fn get_local_review_source(&self, id: &str) -> Result<Option<HistoryEventLog>> {
+        let path = self
+            .root
+            .join("local-review-sources")
+            .join(format!("{id}.json"));
+        match fs::read(path) {
+            Ok(bytes) => Ok(Some(
+                serde_json::from_slice(&bytes).context("decode private review source")?,
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Remove the record, its mjai.jsonl and any local review. Rewrites the index without
@@ -210,6 +243,13 @@ impl HistoryStore {
             let review_path = self.root.join("local-reviews").join(format!("{id}.json"));
             if review_path.exists() {
                 fs::remove_file(&review_path).context("remove local game review")?;
+            }
+            let source_path = self
+                .root
+                .join("local-review-sources")
+                .join(format!("{id}.json"));
+            if source_path.exists() {
+                fs::remove_file(source_path).context("remove private review source")?;
             }
         }
         Ok(removed)
@@ -385,6 +425,50 @@ mod tests {
         let removed = store.delete("NOPE").unwrap();
         assert!(!removed);
         assert_eq!(store.read_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn imported_review_source_is_private_persistent_and_deleted_with_the_game() {
+        let tmp = TempDir::new().unwrap();
+        let store = HistoryStore::new(tmp.path().to_path_buf()).unwrap();
+        let hand = vec![
+            "1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "E", "E", "P", "P",
+        ];
+        let source = vec![
+            sample_events()[0].clone(),
+            serde_json::from_value(serde_json::json!({"type":"start_kyoku", "bakaze":"E", "dora_marker":"1p", "kyoku":1, "honba":0, "kyotaku":0, "oya":0, "scores":[25000,25000,25000,25000], "tehais":[hand,hand,hand,hand]})).unwrap(),
+            MjaiEvent::EndKyoku,
+            MjaiEvent::end_game(),
+        ];
+        let public = super::super::local_review::perspective(&source, 0, 4).unwrap();
+        store.append(&mk_record("TRUTH", 0), &public).unwrap();
+        let result = super::super::local_review::LocalReviewResult {
+            history_id: "TRUTH".into(),
+            bot: "rin-native".into(),
+            created_at: "now".into(),
+            seat: 0,
+            event_count: public.len(),
+            compared: 0,
+            matched: 0,
+            events: public.clone(),
+            decisions: vec![],
+        };
+        store
+            .save_local_review_with_source(&result, Some(&source))
+            .unwrap();
+        assert_eq!(
+            store.get_local_review_source("TRUTH").unwrap().unwrap(),
+            source
+        );
+        assert_eq!(store.get_events("TRUTH").unwrap().unwrap(), public);
+        store.save_local_review(&result).unwrap();
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_some());
+        store.delete("TRUTH").unwrap();
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_none());
+        assert!(store
+            .save_local_review_with_source(&result, Some(&source))
+            .is_err());
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_none());
     }
 
     #[test]

@@ -1471,13 +1471,56 @@ pub async fn get_local_review(
     state: State<'_, AppState>,
 ) -> CmdResult<Option<crate::history::local_review::LocalReviewResult>> {
     let path = local_review_path(&state.history_store, &id)?;
-    match tokio::fs::read(path).await {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|e| e.to_string()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+    let store = state.history_store.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let mut review: crate::history::local_review::LocalReviewResult =
+            serde_json::from_slice(&bytes)?;
+        if let Some(source) = store.get_local_review_source(&id)? {
+            crate::history::local_review::attach_observer_truth(&mut review, &source)?;
+        } else if review
+            .decisions
+            .iter()
+            .any(|decision| decision.observer_truth.is_none())
+        {
+            let source = store
+                .get_events(&id)?
+                .ok_or_else(|| anyhow::anyhow!("history event log is missing"))?;
+            crate::history::local_review::attach_observer_truth(&mut review, &source)?;
+        }
+        Ok(Some(review))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+/// Add labels from a matching complete MJAI record without rerunning inference.
+#[tauri::command]
+pub async fn import_local_review_truth(
+    id: String,
+    content: String,
+    state: State<'_, AppState>,
+) -> CmdResult<crate::history::local_review::LocalReviewResult> {
+    let _permit = LOCAL_REVIEW_SLOT
+        .try_acquire()
+        .map_err(|_| "a local review is already running".to_string())?;
+    let path = local_review_path(&state.history_store, &id)?;
+    let store = state.history_store.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let source = crate::history::local_review::parse_truth_source(&content)?;
+        let mut result = serde_json::from_slice(&std::fs::read(path)?)?;
+        crate::history::local_review::attach_observer_truth(&mut result, &source)?;
+        store.save_local_review_with_source(&result, Some(&source))?;
+        Ok(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
 }
 
 /// Reconstruct saved review boards without starting inference or touching the
@@ -1568,7 +1611,7 @@ pub async fn local_review_history_game(
     .await
     .map_err(|e| format!("{e:#}"))?;
     runner.set_react_timeout(std::time::Duration::from_secs(180));
-    let result = crate::history::local_review::replay(
+    let mut result = crate::history::local_review::replay(
         &mut runner,
         &events,
         seat,
@@ -1587,6 +1630,9 @@ pub async fn local_review_history_game(
     drop(runner);
     let store = state.history_store.clone();
     tokio::task::spawn_blocking(move || {
+        if let Some(source) = store.get_local_review_source(&result.history_id)? {
+            crate::history::local_review::attach_observer_truth(&mut result, &source)?;
+        }
         store.save_local_review(&result)?;
         Ok::<_, anyhow::Error>(result)
     })
@@ -1929,6 +1975,7 @@ macro_rules! ipc_handlers {
             $crate::ipc::commands::native_api_review_history_game,
             $crate::ipc::commands::local_review_history_game,
             $crate::ipc::commands::get_local_review,
+            $crate::ipc::commands::import_local_review_truth,
             $crate::ipc::commands::get_local_review_frames,
             $crate::ipc::commands::native_api_review_status,
             $crate::ipc::commands::native_api_review_share,

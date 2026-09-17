@@ -8,7 +8,7 @@ import { invoke } from '@/lib/tauri'
 import { kyokuLabel } from '@/lib/format'
 import { tileName } from '@/lib/tileName'
 import type { GameStateSnapshot, MahgenView } from '@/types'
-import type { LocalReviewResult } from '@/stores/localReviewStore'
+import { useLocalReviewStore, type LocalReviewResult } from '@/stores/localReviewStore'
 import { parseObserver } from '@/stores/observerStore'
 import { actionLabel } from './actionLabel'
 
@@ -24,6 +24,8 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [differencesOnly, setDifferencesOnly] = useState(false)
+  const [truthImport, setTruthImport] = useState<{ id: string; state: 'loading' | 'success' | 'error' } | null>(null)
+  const importState = truthImport?.id === result.history_id ? truthImport.state : null
   useEffect(() => {
     let cancelled = false
     invoke<(ReviewFrame | null)[]>('get_local_review_frames', { id: result.history_id })
@@ -40,6 +42,8 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
   const event = result.events[currentIndex]
   const decision = result.decisions.find((item) => item.event_index === currentIndex)
   const observer = useMemo(() => parseObserver(decision?.meta, result.seat), [decision?.meta, result.seat])
+  const truth = decision?.observer_truth?.schema_version === 'akagi.observer-truth.v1'
+    && decision.observer_truth.event_index === currentIndex ? decision.observer_truth : null
   const decisions = result.decisions.filter((item) => !differencesOnly || item.matches === false)
   const rounds = result.events.flatMap((item, i) => item.type === 'start_kyoku'
     ? [{ index: i, label: `${kyokuLabel(item.bakaze ?? 'E', item.kyoku ?? 1)} · ${t('review.replay_honba', { count: item.honba ?? 0 })}` }]
@@ -64,6 +68,18 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
     setIndex(next)
   }
 
+  async function importTruth(file: File) {
+    const id = result.history_id
+    setPlaying(false)
+    setTruthImport({ id, state: 'loading' })
+    try {
+      const updated = await useLocalReviewStore.getState().importTruth(id, await file.text())
+      setTruthImport(updated ? { id, state: 'success' } : null)
+    } catch {
+      setTruthImport({ id, state: 'error' })
+    }
+  }
+
   return <section className="space-y-4" aria-label={t('review.replay_title')}>
     <div className="flex flex-wrap items-center gap-3">
       <h3 className="font-medium">{t('review.replay_title')}</h3>
@@ -71,6 +87,18 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
         {rounds.map((round) => <option key={round.index} value={round.index}>{round.label}</option>)}
       </select>
       <span className="text-xs text-muted-foreground">{t('review.replay_visibility')}</span>
+    </div>
+    <div className="space-y-2 rounded-md border p-3 text-sm">
+      <label className="flex flex-wrap items-center gap-3">
+        <span className="font-medium">{t('observer.truth_import')}</span>
+        <input type="file" accept=".jsonl,.json,.mjai" aria-label={t('observer.truth_import')} disabled={importState === 'loading'} className="min-w-0 max-w-full text-xs file:mr-3 file:rounded file:border file:bg-background file:px-3 file:py-1" onChange={(event) => {
+          const file = event.target.files?.[0]
+          event.target.value = ''
+          if (file) void importTruth(file)
+        }} />
+      </label>
+      <p className="text-xs text-muted-foreground">{t('observer.truth_import_hint')}</p>
+      {importState && <p role={importState === 'error' ? 'alert' : 'status'} className={`text-xs ${importState === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>{t(`observer.truth_import_${importState}`)}</p>}
     </div>
     {loading && <div role="status" className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('review.replay_loading')}</div>}
     {error && <p role="alert" className="text-sm text-destructive break-words">{error}</p>}
@@ -105,7 +133,7 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
             <span>{candidate.selected ? '✓ ' : ''}{actionLabel(candidate.action, t, language)}{candidate.continuation?.pai ? ` → ${tileName(candidate.continuation.pai, language)}` : ''}</span>
             <span className="shrink-0 font-mono">{(candidate.probability * 100).toFixed(2)}%</span>
           </div>)}
-          {observer?.status === 'ready' && <div className="border-t pt-4"><ObserverDetails observer={observer} /></div>}
+          {observer?.status === 'ready' && <div className="border-t pt-4"><ObserverDetails observer={observer} truth={truth} /></div>}
         </> : <p className="text-muted-foreground">{t('review.replay_no_decision')}</p>}
       </div>
     </div>

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { ObserverDetails } from './ObserverDetails'
 import { LocalReviewViewer } from './review/LocalReviewViewer'
 import type { ReadyObserver } from '@/stores/observerStore'
-import type { LocalReviewResult } from '@/stores/localReviewStore'
+import type { LocalReviewResult, ObserverTruth } from '@/stores/localReviewStore'
 import chinese from '@/i18n/resources/zh-CN.json'
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }))
@@ -45,6 +45,48 @@ it('renders rotated seats and candidate probabilities in matching columns with C
   const row = container.querySelector('[data-candidate-index="2"]') as HTMLTableRowElement
   expect([...row.cells].map((cell) => cell.textContent)).toEqual(['✓ 立直 红五索', '10.00%', '20.00%', '30.00%', '50.00%', '4,000'])
   expect(screen.getByText(chinese.observer.ron_hint)).toBeTruthy()
+  expect(screen.queryByText(chinese.observer.truth_hint)).toBeNull()
+  expect(screen.queryByLabelText(chinese.observer.truth_comparison)).toBeNull()
+})
+
+it('pairs truth by seat and candidate index, preserving full waits and false, unknown and zero outcomes', () => {
+  const observer = readout()
+  observer.candidates.push({ ...observer.candidates[0], candidate_index: 1, selected: false, action_type: 'dahai', tile: '3p' })
+  const truth: ObserverTruth = {
+    schema_version: 'akagi.observer-truth.v1', event_index: 1,
+    opponents: [
+      { seat: 1, tenpai: null, waits: null, furiten: null, reason: 'missing_hand' },
+      { seat: 3, tenpai: true, waits: ['2m', '6m', '5s'], furiten: false, reason: null },
+      { seat: 0, tenpai: false, waits: [], furiten: false, reason: null },
+    ],
+    candidates: [
+      { candidate_index: 1, ron: [null, false, false], any_ron: null, actual_discard: false, deal_in_points: null },
+      { candidate_index: 2, ron: [null, true, false], any_ron: true, actual_discard: true, deal_in_points: 0 },
+    ],
+  }
+  const { container, rerender } = render(<ObserverDetails observer={observer} truth={truth} />)
+  const right = within(screen.getByRole('article', { name: '下家 · 座位 4' }))
+  expect(right.getByText('实际听牌:', { exact: false }).textContent).toBe('实际听牌: 是')
+  expect(right.getByText('实际待牌（全部）:', { exact: false }).textContent).toBe('实际待牌（全部）: 二万、六万、五索')
+  expect(within(screen.getByRole('article', { name: '对家 · 座位 1' })).getByText('实际听牌:', { exact: false }).textContent).toBe('实际听牌: 否')
+  expect(within(screen.getByRole('article', { name: '上家 · 座位 2' })).getByText('实际听牌:', { exact: false }).textContent).toBe('实际听牌: 未知')
+  expect(screen.getByText(chinese.observer.truth_missing_hand)).toBeTruthy()
+  const played = container.querySelector('[data-candidate-index="2"]') as HTMLTableRowElement
+  expect([...played.cells].slice(1).map((cell) => cell.textContent)).toEqual(['10.00%真值：是', '20.00%真值：否', '30.00%真值：未知', '50.00%真值：是', '4,000实打损失：0'])
+  const unplayed = container.querySelector('[data-candidate-index="1"]') as HTMLTableRowElement
+  expect(unplayed.cells[5].textContent).toBe('4,000实打损失：未实打')
+  const missingOutcome = { ...truth, candidates: truth.candidates.map((candidate) => ({ ...candidate, deal_in_points: null })) }
+  rerender(<ObserverDetails observer={observer} truth={missingOutcome} />)
+  expect(played.cells[5].textContent).toBe('4,000实打损失：未知')
+})
+
+it('shows unknown truth explicitly for a local review without adding it to live estimates', () => {
+  const { rerender } = render(<ObserverDetails observer={readout()} truth={null} />)
+  expect(screen.getByText(chinese.observer.truth_unavailable)).toBeTruthy()
+  expect(screen.getAllByText('实际听牌:', { exact: false }).every((item) => item.textContent === '实际听牌: 未知')).toBe(true)
+  rerender(<ObserverDetails observer={readout()} />)
+  expect(screen.queryByText(chinese.observer.truth_hint)).toBeNull()
+  expect(screen.queryByText('实际听牌:', { exact: false })).toBeNull()
 })
 
 it('distinguishes tiny estimates from zero and an inapplicable candidate from zero risk', () => {
@@ -76,9 +118,15 @@ it('shows the same readout only at its exact review decision and hides it after 
       actual: { type: 'dahai', actor: 2, pai: '3p' }, recommended: { type: 'reach', actor: 2 }, matches: false, meta }],
   }
   mocks.invoke.mockResolvedValue(Array.from({ length: 3 }, () => ({ game: {}, view: {} })))
-  render(<LocalReviewViewer result={result} />)
+  result.decisions[0].observer_truth = { schema_version: 'akagi.observer-truth.v1', event_index: 999,
+    opponents: observer.opponents.map((item) => ({ seat: item.seat, tenpai: true, waits: ['2m'], furiten: false, reason: null })), candidates: [] }
+  const { rerender } = render(<LocalReviewViewer result={result} />)
   await waitFor(() => expect((screen.getByRole('button', { name: '下一步' }) as HTMLButtonElement).disabled).toBe(false))
   expect(screen.getByRole('region', { name: chinese.observer.estimates })).toBeTruthy()
+  expect(screen.getByText(chinese.observer.truth_unavailable)).toBeTruthy()
+  expect(screen.queryByText('实际待牌（全部）: 二万')).toBeNull()
+  rerender(<LocalReviewViewer result={{ ...result, decisions: [{ ...result.decisions[0], observer_truth: { ...result.decisions[0].observer_truth!, event_index: 1 } }] }} />)
+  expect(screen.getAllByText('实际待牌（全部）: 二万')).toHaveLength(3)
   fireEvent.click(screen.getByRole('button', { name: '下一步' }))
   expect(screen.queryByRole('region', { name: chinese.observer.estimates })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '上一步' }))

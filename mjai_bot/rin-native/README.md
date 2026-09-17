@@ -122,6 +122,20 @@ play them at an adjustable speed, or jump to a round or decision. The table
 uses Akagi's live-game renderer with a separate replay tracker; opponents'
 hands stay hidden. Chinese locales display tile names in Chinese.
 The live bot keeps its own independent session.
+Local review also compares observer estimates with recorded ground truth:
+opponents' actual tenpai and structural waits, candidate ron eligibility when
+it can be established, and the recorded loss for the discard actually played.
+Missing opponent hands produce unavailable labels, not negative answers.
+Unplayed candidates have no recorded loss; eligibility does not mean the
+opponent actually chose to win. These privileged labels are computed after
+inference and never become Actor or observer inputs.
+
+For recordings that hide other hands, **Import complete MJAI** accepts a JSON
+array or JSONL containing all starting hands and draws for that same game.
+Its censored events must match the saved review exactly before it is accepted.
+The complete source is stored privately under `history/local-review-sources/`,
+separate from the original recording, retained when recomputing a review, and
+removed when deleting the game. Importing labels requires no API or model run.
 Use **Cloud Review** only when you intend to submit a recording to the configured
 external service.
 
