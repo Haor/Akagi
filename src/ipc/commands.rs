@@ -1452,6 +1452,133 @@ pub async fn native_api_health(
         .map_err(|e| format!("{e:#}"))
 }
 
+// ---------- Local whole-game review ----------
+
+static LOCAL_REVIEW_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
+fn local_review_path(store: &crate::history::HistoryStore, id: &str) -> CmdResult<PathBuf> {
+    id.parse::<ulid::Ulid>()
+        .map_err(|_| "invalid history id".to_string())?;
+    Ok(store
+        .root()
+        .join("local-reviews")
+        .join(format!("{id}.json")))
+}
+
+#[tauri::command]
+pub async fn get_local_review(
+    id: String,
+    state: State<'_, AppState>,
+) -> CmdResult<Option<crate::history::local_review::LocalReviewResult>> {
+    let path = local_review_path(&state.history_store, &id)?;
+    match tokio::fs::read(path).await {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Uses a separate local RIN process; no API client, live tracker, active bot
+/// setting, or live response bus participates in the review.
+#[tauri::command]
+pub async fn local_review_history_game(
+    id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CmdResult<crate::history::local_review::LocalReviewResult> {
+    use crate::bot::SubprocessBot;
+    use tauri::Emitter;
+    let _permit = LOCAL_REVIEW_SLOT
+        .try_acquire()
+        .map_err(|_| "a local review is already running".to_string())?;
+    local_review_path(&state.history_store, &id)?;
+    let store = state.history_store.clone();
+    let record_id = id.clone();
+    let (record, events) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let record = store
+            .get(&record_id)?
+            .ok_or_else(|| anyhow::anyhow!("history record not found"))?;
+        let events = store
+            .get_events(&record_id)?
+            .ok_or_else(|| anyhow::anyhow!("history event log is missing"))?;
+        Ok((record, events))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))?;
+    let seat = record
+        .our_seat
+        .ok_or("record has no player seat; cannot review an observed game")?;
+    crate::history::local_review::perspective(&events, seat, record.num_players)
+        .map_err(|e| format!("{e:#}"))?;
+    let bot_name = "rin-native";
+    let dir = resolve_dir(Path::new(&state.config.read().await.bot.dir));
+    let registry = BotRegistry::scan(&dir).map_err(|e| format!("{e:#}"))?;
+    let entry = registry
+        .find(bot_name)
+        .ok_or("install the rin-native bot before starting a local review")?;
+    if !runtime::is_synced(&entry.dir) {
+        return Err(
+            "install the rin-native environment on the Bots page before starting a local review"
+                .into(),
+        );
+    }
+    let runtime = state
+        .runtime
+        .as_ref()
+        .ok_or("Python runtime is unavailable")?;
+    // A review must never install packages or use a configured remote bot.
+    let mut command = runtime.command_for(&entry.dir, &["bot.py"]);
+    command.arg(seat.to_string());
+    if let Some(manifest) = &entry.manifest {
+        let values = manifest::load_values(&entry.dir, manifest)
+            .map_err(|e| format!("resolve review settings: {e:#}"))?;
+        let resolved = manifest::write_resolved(
+            &state.history_store.root().join("local-review-runtime"),
+            &values,
+        )
+        .map_err(|e| format!("write review settings: {e:#}"))?;
+        command.env("AKAGI_BOT_CONFIG", resolved);
+    }
+    let mut runner = SubprocessBot::spawn_with_command(
+        command,
+        runtime.clone(),
+        &entry.dir,
+        seat,
+        state.notify_bus.clone(),
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))?;
+    runner.set_react_timeout(std::time::Duration::from_secs(180));
+    let result = crate::history::local_review::replay(
+        &mut runner,
+        &events,
+        seat,
+        record.num_players,
+        id.clone(),
+        bot_name.into(),
+        |processed, total| {
+            let _ = app.emit(
+                "local-review-progress",
+                serde_json::json!({"history_id": id, "processed": processed, "total": total}),
+            );
+        },
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))?;
+    drop(runner);
+    let store = state.history_store.clone();
+    tokio::task::spawn_blocking(move || {
+        store.save_local_review(&result)?;
+        Ok::<_, anyhow::Error>(result)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
 // ---------- Whole-game review (native API, `/v3/review*`) ----------
 //
 // Same family as the commands above: server URL / key travel as explicit
@@ -1784,6 +1911,8 @@ macro_rules! ipc_handlers {
             $crate::ipc::commands::native_api_models,
             $crate::ipc::commands::native_api_health,
             $crate::ipc::commands::native_api_review_history_game,
+            $crate::ipc::commands::local_review_history_game,
+            $crate::ipc::commands::get_local_review,
             $crate::ipc::commands::native_api_review_status,
             $crate::ipc::commands::native_api_review_share,
             $crate::ipc::commands::native_api_list_shares,

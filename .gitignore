@@ -33,6 +33,16 @@ mjai_bot/*/.venv/
 # Per-bot user-edited settings (manifest.toml ships with the bot; settings.toml does not)
 mjai_bot/*/settings.toml
 
+# Native inference assets and local review data stay on the installation.
+mjai_bot/rin-native/models/
+mjai_bot/rin-native/runtime/
+mjai_bot/rin-native/.runtime/
+mjai_bot/rin-native/runtime-settings.json
+mjai_bot/rin-native/warmup.npz
+mjai_bot/rin-native/qualifications.json
+/history/
+/configs/
+
 # Tauri
 gen/
 

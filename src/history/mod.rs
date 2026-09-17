@@ -21,6 +21,7 @@
 //! See `src/history/README.md` for module-extension guidance.
 
 pub mod aggregator;
+pub mod local_review;
 pub mod recorder;
 pub mod store;
 

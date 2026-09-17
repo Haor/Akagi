@@ -176,7 +176,23 @@ impl HistoryStore {
         Ok(Some(out))
     }
 
-    /// Remove the record + its mjai.jsonl. Rewrites the index without
+    /// Save only while the source record exists. Sharing the deletion lock
+    /// prevents a finishing review from recreating a deleted game's data.
+    pub fn save_local_review(&self, result: &super::local_review::LocalReviewResult) -> Result<()> {
+        let _g = self.write_lock.lock().expect("history write lock poisoned");
+        if self.get(&result.history_id)?.is_none() {
+            anyhow::bail!("history record was deleted during review");
+        }
+        let directory = self.root.join("local-reviews");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("{}.json", result.history_id));
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec(result)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+
+    /// Remove the record, its mjai.jsonl and any local review. Rewrites the index without
     /// the matching entry. Returns true if a record was removed.
     pub fn delete(&self, id: &str) -> Result<bool> {
         let _g = self.write_lock.lock().expect("history write lock poisoned");
@@ -190,6 +206,10 @@ impl HistoryStore {
             if game_path.exists() {
                 fs::remove_file(&game_path)
                     .with_context(|| format!("failed to remove {}", game_path.display()))?;
+            }
+            let review_path = self.root.join("local-reviews").join(format!("{id}.json"));
+            if review_path.exists() {
+                fs::remove_file(&review_path).context("remove local game review")?;
             }
         }
         Ok(removed)
@@ -329,11 +349,30 @@ mod tests {
         store.append(&r, &sample_events()).unwrap();
         let log_path = store.game_log_path(&r.id);
         assert!(log_path.exists());
+        let result = super::super::local_review::LocalReviewResult {
+            history_id: "DEL".into(),
+            bot: "rin-native".into(),
+            created_at: "now".into(),
+            seat: 0,
+            event_count: 2,
+            compared: 0,
+            matched: 0,
+            events: sample_events(),
+            decisions: vec![],
+        };
+        store.save_local_review(&result).unwrap();
+        // Re-running replaces the saved result rather than appending it.
+        store.save_local_review(&result).unwrap();
+        let review_path = store.root().join("local-reviews").join("DEL.json");
+        assert!(review_path.exists());
 
         let removed = store.delete("DEL").unwrap();
         assert!(removed);
         assert!(!log_path.exists());
+        assert!(!review_path.exists());
         assert!(store.get("DEL").unwrap().is_none());
+        assert!(store.save_local_review(&result).is_err());
+        assert!(!review_path.exists());
     }
 
     #[test]
