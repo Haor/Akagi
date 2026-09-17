@@ -996,6 +996,7 @@
     "truth_import_success": "Ground truth imported. This review has been updated.",
     "truth_import_error": "Import failed. Check that the file is readable and contains the complete MJAI record of this game.",
     "estimates": "Model estimates",
+    "latest_estimate": "Latest inference result · Updates after the next inference",
     "estimate_hint": "Estimated from the position visible to you; these are not the opponents' actual hands.",
     "seat": "Seat {{seat}}",
     "tenpai": "Tenpai probability",

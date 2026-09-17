@@ -202,9 +202,6 @@ export const useObserverStore = create<ObserverStore>((set) => ({
       set({ gameActive: true, observer: null })
     } else if (event.type === 'end_kyoku') {
       set({ observer: null })
-    } else {
-      // A numeric estimate belongs only to the decision that produced it.
-      set((state) => state.observer?.status === 'ready' ? { observer: null } : state)
     }
   },
   onBotStatus: (status) => set({
@@ -213,11 +210,14 @@ export const useObserverStore = create<ObserverStore>((set) => ({
     seat: status.state === 'ready' ? status.actor_id : null,
     observer: null,
   }),
-  onResponse: (response) => set((state) => ({
-    observer: state.gameActive && state.runnerReady && state.botName === 'rin-native'
-      ? parseObserver(response.meta, state.seat)
-      : null,
-  })),
+  onResponse: (response) => set((state) => {
+    if (!state.gameActive || !state.runnerReady || state.botName !== 'rin-native') return { observer: null }
+    const observer = parseObserver(response.meta, state.seat)
+    // Non-decisions and forced continuations do not run the observer. Keep
+    // the latest estimate until another evaluation or a lifecycle reset.
+    if (state.observer?.status === 'ready' && (observer === null || observer.status === 'not_evaluated')) return state
+    return { observer }
+  }),
 }))
 
 export function observerMessage(state: Pick<ObserverStore, 'gameActive' | 'observer'>) {

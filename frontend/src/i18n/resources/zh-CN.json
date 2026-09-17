@@ -996,6 +996,7 @@
     "truth_import_success": "真值已导入，当前复盘已更新。",
     "truth_import_error": "导入失败。请确认这是同一对局的完整 MJAI 牌谱，且文件可读。",
     "estimates": "模型估计",
+    "latest_estimate": "最近一次推理结果 · 下次推理后更新",
     "estimate_hint": "根据当前可见局面估计，不代表对手实际手牌。",
     "seat": "座位 {{seat}}",
     "tenpai": "听牌概率",

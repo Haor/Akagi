@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { observerMessage, parseObserver, useObserverStore } from './observerStore'
-import type { BotResponse, GameStateSnapshot } from '@/types'
+import type { BotResponse, GameStateSnapshot, MjaiEvent } from '@/types'
 
 const actor = 'a'.repeat(64)
 const meta = {
@@ -159,16 +159,50 @@ describe('observation-head contract', () => {
     }
   })
 
-  it('clears numeric estimates on progress and renders continuation/errors without old numbers', () => {
+  it('holds the latest estimate across other turns and forced continuations, then replaces it', () => {
     const store = useObserverStore.getState()
     store.onGameEvent({ ...start, names: [...start.names] })
     store.onBotStatus(ready)
     store.onResponse({ type: 'none', meta: readyMeta() })
     expect(observerMessage(useObserverStore.getState())).toBe('observer.estimates')
-    store.onGameEvent({ type: 'dahai', actor: 0, pai: '3p', tsumogiri: false })
-    expect(useObserverStore.getState().observer).toBeNull()
+    const previous = useObserverStore.getState().observer
+    const events: MjaiEvent[] = [
+      { type: 'dahai', actor: 0, pai: '3p', tsumogiri: false },
+      { type: 'tsumo', actor: 1, pai: '?' },
+      { type: 'dahai', actor: 1, pai: '2s', tsumogiri: true },
+      { type: 'pon', actor: 2, target: 1, pai: '2s', consumed: ['2s', '2s'] },
+      { type: 'tsumo', actor: 0, pai: '1m' },
+    ]
+    for (const event of events) {
+      store.onGameEvent(event)
+      store.onResponse({ type: 'none' })
+      store.onResponse({ type: 'none', meta: { decision: false } })
+      expect(useObserverStore.getState().observer).toBe(previous)
+    }
     store.onResponse({ type: 'none', meta: { ...readyMeta(), observer: { status: 'not_evaluated', reason: 'riichi_continuation', actor_identity: actor } } })
-    expect(observerMessage(useObserverStore.getState())).toBe('observer.riichi_continuation')
+    expect(useObserverStore.getState().observer).toBe(previous)
+    const next = readyMeta()
+    next.observer.opponents[0].tenpai_probability = 0.8
+    store.onResponse({ type: 'none', meta: next })
+    expect(useObserverStore.getState().observer).toEqual(parseObserver(next, 0))
+    expect(useObserverStore.getState().observer).not.toEqual(previous)
+    store.onGameEvent({ type: 'end_kyoku' })
+    expect(useObserverStore.getState().observer).toBeNull()
+  })
+
+  it('clears held estimates on a new round, bot change, or explicit observer error', () => {
+    const store = useObserverStore.getState()
+    store.onGameEvent({ ...start, names: [...start.names] })
+    store.onBotStatus(ready)
+    store.onResponse({ type: 'none', meta: readyMeta() })
+    store.onGameEvent({ type: 'start_kyoku', bakaze: 'E', kyoku: 2, honba: 0, kyotaku: 0, oya: 1,
+      dora_marker: '1m', scores: [25000, 25000, 25000, 25000], tehais: Array.from({ length: 4 }, () => Array<string>(13).fill('?')) })
+    expect(useObserverStore.getState().observer).toBeNull()
+    store.onResponse({ type: 'none', meta: readyMeta() })
+    store.onBotStatus({ ...ready, bot: 'other-bot' })
+    expect(useObserverStore.getState().observer).toBeNull()
+    store.onBotStatus(ready)
+    store.onResponse({ type: 'none', meta: readyMeta() })
     store.onResponse({ type: 'none', meta: { ...readyMeta(), observer: { status: 'error', reason: 'invalid_weights', actor_identity: actor } } })
     expect(observerMessage(useObserverStore.getState())).toBe('observer.error')
     store.onResponse({ type: 'none', meta: { ...readyMeta(), decision: false } })
