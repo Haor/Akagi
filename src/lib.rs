@@ -129,6 +129,7 @@ pub fn run() {
     let history_rx = mjai_bus.subscribe();
     let history_store_for_recorder = history_store.clone();
     let history_bus_for_recorder = history_bus.clone();
+    let history_truth_rx = history_bus.subscribe();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -240,6 +241,11 @@ pub fn run() {
                     history_bus_for_recorder,
                     history_platform.clone(),
                     history_rx,
+                ));
+                tauri::async_runtime::spawn(history::majsoul_download::drive_loop(
+                    state.history_store.clone(),
+                    state.autoplay_context.clone(),
+                    history_truth_rx,
                 ));
 
                 if bot_enabled {

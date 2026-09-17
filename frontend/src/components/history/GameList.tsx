@@ -10,7 +10,8 @@
 // feature can't apply to (no API key, observer games) show no icon at all.
 
 import { useEffect, useState } from 'react'
-import { Loader2, SearchCheck, Share2, Trash2 } from 'lucide-react'
+import { Loader2, Monitor, SearchCheck, Share2, Trash2 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -248,6 +249,9 @@ export function GameList({
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="inline-flex gap-0.5">
+                        {r.num_players === 4 && r.our_seat != null && <Button asChild variant="ghost" size="sm" aria-label={t('review.local_title')} title={t('review.local_title')}>
+                          <Link to={`/review?game=${encodeURIComponent(r.id)}`} onClick={(event) => event.stopPropagation()}><Monitor className="h-4 w-4" /></Link>
+                        </Button>}
                         {reviewSlot(r)}
                         <Button
                           variant="ghost"

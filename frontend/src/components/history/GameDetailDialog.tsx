@@ -3,6 +3,7 @@
 // Mirrors the GameRecord shape directly — no re-aggregation needed.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, Loader2, SearchCheck, Share2 } from 'lucide-react'
 
@@ -66,6 +67,9 @@ export function GameDetailDialog({
         </DialogHeader>
         {record && (
           <div className="space-y-4">
+            {record.num_players === 4 && record.our_seat != null && <Button asChild variant="outline">
+              <Link to={`/review?game=${encodeURIComponent(record.id)}`} onClick={() => onOpenChange(false)}>{t('review.local_title')}</Link>
+            </Button>}
             <Section title={t('history.detail.started_at')}>
               <span className="font-mono text-sm">
                 {new Date(record.started_at).toLocaleString()}

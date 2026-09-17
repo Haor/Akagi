@@ -1,17 +1,5 @@
-// Whole-game review page (Beta). Submit a recorded history game to the
-// inference server's background review queue and read the finished result
-// in the MJOT viewer — there is no in-app result renderer yet, so every
-// "open" hands the share URL to the system browser.
-//
-// Layout: the finished-reviews table IS the page (plus the active-job card
-// while one runs). Picking a game to submit lives in `ReviewSubmitDialog` —
-// a history of hundreds of games would otherwise bury the results table.
-//
-// The page is a thin view over `useReviewStore` (job polling, share cache,
-// history↔review mapping live there and survive navigation). Everything is
-// gated on a configured API key: `bot.api.base_url` + `bot.api.key`,
-// deliberately NOT on `bot.api.enabled` (that switch routes live decisions;
-// reviewing past games is useful either way).
+// Local review is available independently of API configuration. The cloud
+// review page mounts only when explicitly selected.
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -38,6 +26,8 @@ import {
 } from '@/components/ui/table'
 import { toast } from '@/components/ui/sonner'
 import { ReviewSubmitDialog } from '@/components/review/ReviewSubmitDialog'
+import { LocalReviewPanel } from '@/components/review/LocalReviewPanel'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useKeyStatus } from '@/hooks/useKeyStatus'
 import { copyText } from '@/lib/clipboard'
 import { openExternal } from '@/lib/external'
@@ -47,6 +37,21 @@ import { useReviewStore } from '@/stores/reviewStore'
 import type { GameRecord, KeyStatus, ShareEntry } from '@/types'
 
 export function Review() {
+  const { t } = useTranslation()
+  const [mode, setMode] = useState('local')
+  return <div className="p-6 space-y-6">
+    <h1 className="text-2xl font-semibold">{t('review.title')}</h1>
+    <Tabs value={mode} onValueChange={setMode}>
+      <TabsList>
+        <TabsTrigger value="local">{t('review.local_title')}</TabsTrigger>
+        <TabsTrigger value="cloud">{t('review.cloud_title')}</TabsTrigger>
+      </TabsList>
+    </Tabs>
+    {mode === 'local' ? <LocalReviewPanel /> : <CloudReview />}
+  </div>
+}
+
+function CloudReview() {
   const { t } = useTranslation()
   const config = useConfigStore((s) => s.config)
   const api = config?.bot.api

@@ -10,6 +10,7 @@
 //! create one `MajsoulBridge` per connection.
 
 pub mod parser;
+pub mod record;
 pub mod tile;
 
 use super::{Bridge, Direction, ParseResult};

@@ -176,7 +176,82 @@ impl HistoryStore {
         Ok(Some(out))
     }
 
-    /// Remove the record + its mjai.jsonl. Rewrites the index without
+    /// Save only while the source record exists. Sharing the deletion lock
+    /// prevents a finishing review from recreating a deleted game's data.
+    pub fn save_local_review(&self, result: &super::local_review::LocalReviewResult) -> Result<()> {
+        self.save_local_review_with_source(result, None)
+    }
+
+    /// Optional complete hands are private review material, never the live log.
+    /// The same deletion lock protects the imported source and its cached labels.
+    pub fn save_local_review_with_source(
+        &self,
+        result: &super::local_review::LocalReviewResult,
+        source: Option<&[MjaiEvent]>,
+    ) -> Result<()> {
+        let _g = self.write_lock.lock().expect("history write lock poisoned");
+        if self.get(&result.history_id)?.is_none() {
+            anyhow::bail!("history record was deleted during review");
+        }
+        if let Some(source) = source {
+            super::local_review::validate_truth_source(result, source)?;
+            let directory = self.root.join("local-review-sources");
+            fs::create_dir_all(&directory)?;
+            let path = directory.join(format!("{}.json", result.history_id));
+            let temporary = path.with_extension("json.tmp");
+            fs::write(&temporary, serde_json::to_vec(source)?)?;
+            fs::rename(temporary, path)?;
+        }
+        let directory = self.root.join("local-reviews");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("{}.json", result.history_id));
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec(result)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+
+    pub fn get_local_review_source(&self, id: &str) -> Result<Option<HistoryEventLog>> {
+        let path = self
+            .root
+            .join("local-review-sources")
+            .join(format!("{id}.json"));
+        match fs::read(path) {
+            Ok(bytes) => Ok(Some(
+                serde_json::from_slice(&bytes).context("decode private review source")?,
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Cache a downloaded complete source before a model review has been run.
+    /// Preserve the original live log, and validate every public event and own tile.
+    pub fn save_local_review_source(&self, id: &str, source: &[MjaiEvent]) -> Result<()> {
+        let _g = self.write_lock.lock().expect("history write lock poisoned");
+        let record = self
+            .get(id)?
+            .context("history record was deleted during download")?;
+        let seat = record.our_seat.context("record has no player seat")?;
+        let original = self.get_events(id)?.context("history log missing")?;
+        let complete = super::local_review::parse_truth_source(&serde_json::to_string(source)?)?;
+        let visible = super::local_review::perspective(&complete, seat, record.num_players)?;
+        let original_visible =
+            super::local_review::perspective(&original, seat, record.num_players)?;
+        anyhow::ensure!(
+            serde_json::to_value(&visible)? == serde_json::to_value(&original_visible)?,
+            "downloaded source differs from the recorded public game"
+        );
+        let directory = self.root.join("local-review-sources");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("{id}.json"));
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, serde_json::to_vec(&complete)?)?;
+        fs::rename(temporary, path)?;
+        Ok(())
+    }
+
+    /// Remove the record, its mjai.jsonl and any local review. Rewrites the index without
     /// the matching entry. Returns true if a record was removed.
     pub fn delete(&self, id: &str) -> Result<bool> {
         let _g = self.write_lock.lock().expect("history write lock poisoned");
@@ -190,6 +265,17 @@ impl HistoryStore {
             if game_path.exists() {
                 fs::remove_file(&game_path)
                     .with_context(|| format!("failed to remove {}", game_path.display()))?;
+            }
+            let review_path = self.root.join("local-reviews").join(format!("{id}.json"));
+            if review_path.exists() {
+                fs::remove_file(&review_path).context("remove local game review")?;
+            }
+            let source_path = self
+                .root
+                .join("local-review-sources")
+                .join(format!("{id}.json"));
+            if source_path.exists() {
+                fs::remove_file(source_path).context("remove private review source")?;
             }
         }
         Ok(removed)
@@ -329,11 +415,30 @@ mod tests {
         store.append(&r, &sample_events()).unwrap();
         let log_path = store.game_log_path(&r.id);
         assert!(log_path.exists());
+        let result = super::super::local_review::LocalReviewResult {
+            history_id: "DEL".into(),
+            bot: "rin-native".into(),
+            created_at: "now".into(),
+            seat: 0,
+            event_count: 2,
+            compared: 0,
+            matched: 0,
+            events: sample_events(),
+            decisions: vec![],
+        };
+        store.save_local_review(&result).unwrap();
+        // Re-running replaces the saved result rather than appending it.
+        store.save_local_review(&result).unwrap();
+        let review_path = store.root().join("local-reviews").join("DEL.json");
+        assert!(review_path.exists());
 
         let removed = store.delete("DEL").unwrap();
         assert!(removed);
         assert!(!log_path.exists());
+        assert!(!review_path.exists());
         assert!(store.get("DEL").unwrap().is_none());
+        assert!(store.save_local_review(&result).is_err());
+        assert!(!review_path.exists());
     }
 
     #[test]
@@ -346,6 +451,65 @@ mod tests {
         let removed = store.delete("NOPE").unwrap();
         assert!(!removed);
         assert_eq!(store.read_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn imported_review_source_is_private_persistent_and_deleted_with_the_game() {
+        let tmp = TempDir::new().unwrap();
+        let store = HistoryStore::new(tmp.path().to_path_buf()).unwrap();
+        let hand = vec![
+            "1m", "2m", "3m", "4m", "5m", "6m", "7m", "8m", "9m", "E", "E", "P", "P",
+        ];
+        let source = vec![
+            sample_events()[0].clone(),
+            serde_json::from_value(serde_json::json!({"type":"start_kyoku", "bakaze":"E", "dora_marker":"1p", "kyoku":1, "honba":0, "kyotaku":0, "oya":0, "scores":[25000,25000,25000,25000], "tehais":[hand,hand,hand,hand]})).unwrap(),
+            MjaiEvent::EndKyoku,
+            MjaiEvent::end_game(),
+        ];
+        let public = super::super::local_review::perspective(&source, 0, 4).unwrap();
+        store.append(&mk_record("TRUTH", 0), &public).unwrap();
+        store.save_local_review_source("TRUTH", &source).unwrap();
+        assert!(!store.root().join("local-reviews/TRUTH.json").exists());
+        assert!(store.save_local_review_source("TRUTH", &public).is_err());
+        let mut wrong_source = source.clone();
+        if let MjaiEvent::StartKyoku { dora_marker, .. } = &mut wrong_source[1] {
+            *dora_marker = "9s".into();
+        }
+        assert!(store
+            .save_local_review_source("TRUTH", &wrong_source)
+            .is_err());
+        assert_eq!(
+            store.get_local_review_source("TRUTH").unwrap().unwrap(),
+            source
+        );
+        let result = super::super::local_review::LocalReviewResult {
+            history_id: "TRUTH".into(),
+            bot: "rin-native".into(),
+            created_at: "now".into(),
+            seat: 0,
+            event_count: public.len(),
+            compared: 0,
+            matched: 0,
+            events: public.clone(),
+            decisions: vec![],
+        };
+        store
+            .save_local_review_with_source(&result, Some(&source))
+            .unwrap();
+        assert_eq!(
+            store.get_local_review_source("TRUTH").unwrap().unwrap(),
+            source
+        );
+        assert_eq!(store.get_events("TRUTH").unwrap().unwrap(), public);
+        store.save_local_review(&result).unwrap();
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_some());
+        store.delete("TRUTH").unwrap();
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_none());
+        assert!(store.save_local_review_source("TRUTH", &source).is_err());
+        assert!(store
+            .save_local_review_with_source(&result, Some(&source))
+            .is_err());
+        assert!(store.get_local_review_source("TRUTH").unwrap().is_none());
     }
 
     #[test]

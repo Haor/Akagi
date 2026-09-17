@@ -1,0 +1,59 @@
+manifest_version = 1
+
+[bot]
+name = "rin-native"
+display = "RIN Native (PPO 400)"
+description = "Native local inference with complete public history and replay candidates."
+version = "3.7.1.1"
+supported_modes = ["4p"]
+
+[settings.model]
+type = "string"
+label = "Model ID"
+default = "ppo400"
+help = "Name of a compatible safetensors bundle in models/."
+
+[settings.device]
+type = "string"
+label = "Inference device"
+default = "cuda:0"
+help = "cuda:0, cpu, or mps. The requested device must be available."
+
+[settings.precision]
+type = "enum"
+label = "Precision"
+default = "fp32"
+choices = ["fp32"]
+
+[settings.optimization_profile]
+type = "enum"
+label = "Optimization"
+default = "balanced"
+choices = ["baseline", "balanced"]
+help = "Balanced uses SDPA attention while retaining FP32 and disabling TF32."
+
+[settings.attention]
+type = "enum"
+label = "Attention"
+default = "sdpa"
+choices = ["reference", "sdpa"]
+help = "Balanced always uses SDPA; baseline respects this setting."
+
+[settings.cpu_threads]
+type = "int"
+label = "CPU threads"
+default = 4
+min = 1
+max = 32
+
+[settings.warmup]
+type = "int"
+label = "Warmup iterations"
+default = 3
+min = 1
+max = 100
+
+[settings.diagnostics]
+type = "bool"
+label = "Timing diagnostics"
+default = false

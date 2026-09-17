@@ -52,6 +52,9 @@ fn parse_notify_line(line: &str) -> Result<Option<Notification>, serde_json::Err
 /// any user-perceptible hang.
 const DEFAULT_REACT_TIMEOUT_MS: u64 = 5_000;
 
+/// Loading a local model may exceed a turn's normal inference budget.
+const INITIAL_REACT_TIMEOUT_MS: u64 = 30_000;
+
 /// Grace period for graceful shutdown on `reset()`. End_game is written,
 /// child usually exits within a few hundred ms; we wait this long before
 /// SIGKILL'ing.
@@ -84,6 +87,8 @@ pub struct SubprocessBot {
     runtime: PythonRuntime,
     actor_id: u8,
     react_timeout: std::time::Duration,
+    initial_react_timeout: std::time::Duration,
+    awaiting_first_response: bool,
     /// Forwards bot-emitted stderr notifications to the frontend. Cloned
     /// into each stderr pump, including the one spawned on `reset()`.
     notify_tx: NotifyBus,
@@ -150,6 +155,8 @@ impl SubprocessBot {
             runtime,
             actor_id,
             react_timeout: std::time::Duration::from_millis(DEFAULT_REACT_TIMEOUT_MS),
+            initial_react_timeout: std::time::Duration::from_millis(INITIAL_REACT_TIMEOUT_MS),
+            awaiting_first_response: true,
             notify_tx,
         })
     }
@@ -162,9 +169,10 @@ impl SubprocessBot {
         self.actor_id
     }
 
-    /// Override the default 5 s react timeout. Mostly for tests.
+    /// Override both react timeouts. Mostly for tests.
     pub fn set_react_timeout(&mut self, t: std::time::Duration) {
         self.react_timeout = t;
+        self.initial_react_timeout = t;
     }
 }
 
@@ -180,13 +188,18 @@ impl BotRunner for SubprocessBot {
         self.stdin.flush().await.context("flush bot stdin")?;
 
         let mut buf = String::new();
-        let read = tokio::time::timeout(self.react_timeout, self.stdout.read_line(&mut buf)).await;
+        let timeout = if self.awaiting_first_response {
+            self.initial_react_timeout
+        } else {
+            self.react_timeout
+        };
+        let read = tokio::time::timeout(timeout, self.stdout.read_line(&mut buf)).await;
         let n = match read {
             Ok(r) => r.context("read bot stdout")?,
             Err(_) => bail!(
                 "bot {} react() timed out after {:?}",
                 self.bot_name,
-                self.react_timeout
+                timeout
             ),
         };
         if n == 0 {
@@ -195,6 +208,7 @@ impl BotRunner for SubprocessBot {
 
         let resp: BotResponse = serde_json::from_str(buf.trim())
             .with_context(|| format!("bot {} reply malformed: {}", self.bot_name, buf.trim()))?;
+        self.awaiting_first_response = false;
         Ok(resp)
     }
 
@@ -225,6 +239,8 @@ impl BotRunner for SubprocessBot {
             stdin,
             stdout,
             react_timeout,
+            initial_react_timeout,
+            awaiting_first_response,
             ..
         } = new;
 
@@ -232,6 +248,8 @@ impl BotRunner for SubprocessBot {
         self.stdin = stdin;
         self.stdout = stdout;
         self.react_timeout = react_timeout;
+        self.initial_react_timeout = initial_react_timeout;
+        self.awaiting_first_response = awaiting_first_response;
         Ok(())
     }
 }
@@ -352,6 +370,25 @@ for line in sys.stdin:
         assert_eq!(n.level, crate::schema::NotifyLevel::Warn);
         assert_eq!(n.title, "Heads up");
         assert_eq!(n.body.as_deref(), Some("low wall"));
+    }
+
+    #[tokio::test]
+    async fn cold_start_budget_does_not_extend_later_turns() {
+        if system_python().is_none() {
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("bot.py"),
+            "import sys, time\nfor line in sys.stdin:\n time.sleep(0.2)\n print('{\"type\":\"none\"}', flush=True)\n",
+        ).unwrap();
+        let mut bot = spawn_echo(tmp.path()).await.unwrap();
+        bot.react_timeout = std::time::Duration::from_millis(50);
+        bot.initial_react_timeout = std::time::Duration::from_secs(5);
+        assert!(bot.react(&[MjaiEvent::None]).await.is_ok());
+        assert!(!bot.awaiting_first_response);
+        let error = bot.react(&[MjaiEvent::None]).await.unwrap_err();
+        assert!(error.to_string().contains("timed out"));
     }
 
     #[test]
