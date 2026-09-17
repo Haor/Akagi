@@ -24,7 +24,10 @@ export type LocalDecision = {
   recommended: ReviewAction
   matches: boolean | null
   meta: {
-    model_identity?: { model_id?: string; actor_sha256?: string }
+    decision?: boolean
+    continuation?: boolean
+    observer?: unknown
+    model_identity?: { model_id?: string; actor_sha256?: string; original_sha256?: string }
     candidates?: { action: ReviewAction; continuation?: ReviewAction; probability: number; selected: boolean }[]
   } | null
 }

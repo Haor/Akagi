@@ -103,7 +103,7 @@ class SemanticActorTorch(nn.Module):
         # Integer sqrt promotes to float32 in the fixed Flax actor.
         return torch.where(mask,e,0).sum(-2).float()/torch.sqrt(count)
 
-    def forward(self,tile_features,history,history_mask,global_features,candidates,candidate_mask,*,intermediates=False):
+    def forward(self,tile_features,history,history_mask,global_features,candidates,candidate_mask,*,intermediates=False,return_observer_inputs=False):
         c=self.config
         traces={}
         tokens=self.dense(tile_features,"semantic_projection")
@@ -132,7 +132,8 @@ class SemanticActorTorch(nn.Module):
         for i in range(c["history_layers"]):
             h=self.transformer(h,f"history_encoder/block_{i}",c["history_heads"],attention_mask)
             if intermediates: traces[f"history_block_{i}"]=h
-        hist=self.norm(h,"history_encoder/output_norm")[:,0]
+        normalized_history=self.norm(h,"history_encoder/output_norm")
+        hist=normalized_history[:,0]
         traces["history_encoder"]=hist
         glob=self.dense(F.silu(self.dense(global_features,"global_encoder/hidden")),"global_encoder/output")
         traces["global_encoder"]=glob
@@ -151,6 +152,14 @@ class SemanticActorTorch(nn.Module):
         hidden=F.silu(self.dense(state,"action_scorer/state")[:,None]+self.dense(actions,"action_scorer/action")+self.dense(state[:,None]*actions,"action_scorer/interaction"))
         logits=self.dense(hidden,"action_scorer/output",True).squeeze(-1)+self.w("action_scorer/kind_bias")[candidates["kind"].long().clamp(0,10)]
         logits=logits.masked_fill(~candidate_mask.bool(),torch.finfo(torch.float32).min)
+        if return_observer_inputs:
+            if intermediates:
+                raise ValueError("Choose observer representations or diagnostic intermediates")
+            representations={"state":state.detach(),
+                             "tile_tokens":self.norm(tokens[:,1:],"tile_encoder/output_norm").detach(),
+                             "history_tokens":normalized_history[:,1:].detach(),
+                             "history_mask":history_mask.detach(), "global_state":glob.detach()}
+            return logits,representations
         return (logits,traces) if intermediates else logits
 
 def tensor_inputs(inputs,device):
@@ -180,9 +189,48 @@ class Predictor:
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction=False
         arrays,self.config,self.manifest=load_actor_arrays(model_path)
         self.actor=SemanticActorTorch(arrays,self.config,device=self.device,precision=precision,attention=attention)
+        self.observer=None
+        self.observer_manifest=None
+        self.observer_status="unavailable"
+        self.observer_reason="no_compatible_observer"
+        self.last_observer_outputs=None
+        from pathlib import Path
+        from .observer_checkpoint import FILES,load_observer_arrays
+        if any((Path(model_path)/name).exists() for name in FILES):
+            try:
+                from .observer_torch import ObserverReadoutTorch
+                observer_arrays,observer_config,self.observer_manifest=load_observer_arrays(model_path,self.config,self.manifest)
+                self.observer=ObserverReadoutTorch(observer_arrays,observer_config,device=self.device,attention=attention)
+                self.observer_status="ready"
+                self.observer_reason=None
+            except Exception as error:
+                import sys
+                self.observer_status="error"
+                self.observer_reason="invalid_observer_bundle"
+                print(f"RIN observer rejected: {error}",file=sys.stderr,flush=True)
         self.effective={"device":str(self.device),"precision":precision,"attention":attention,"cpu_threads":cpu_threads,"tf32":False,"compile":False,"parameter_device":str(next(self.actor.parameters()).device),"gpu":torch.cuda.get_device_name(self.device) if self.device.type=="cuda" else str(self.device)}
+        self.effective["observer_status"]=self.observer_status
 
     @torch.inference_mode()
     def predict(self,inputs):
         tensors=tensor_inputs(inputs,self.device)
-        return self.actor(**tensors).float().cpu().numpy()
+        self.last_observer_outputs=None
+        if self.observer is None:
+            return self.actor(**tensors).float().cpu().numpy()
+        logits,representations=self.actor(**tensors,return_observer_inputs=True)
+        try:
+            outputs=self.observer(representations,tensors["candidates"],tensors["candidate_mask"])
+            probabilities=self.observer.probabilities(outputs)
+            values={name:value.float().cpu().numpy() if value.dtype!=torch.bool else value.cpu().numpy()
+                    for name,value in probabilities.items()}
+            if any(not np.isfinite(value).all() for value in values.values()):
+                raise ValueError("Observer produced non-finite outputs")
+            self.last_observer_outputs=values
+        except Exception as error:
+            import sys
+            self.observer=None
+            self.observer_status="error"
+            self.observer_reason="observer_inference_failed"
+            self.effective["observer_status"]="error"
+            print(f"RIN observer disabled: {error}",file=sys.stderr,flush=True)
+        return logits.float().cpu().numpy()

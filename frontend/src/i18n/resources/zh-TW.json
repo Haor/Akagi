@@ -976,6 +976,22 @@
     "empty": "等待 AI 建議…"
   },
   "observer": {
+    "estimates": "模型估計",
+    "estimate_hint": "根據目前可見局面估計，不代表對手實際手牌。",
+    "seat": "座位 {{seat}}",
+    "tenpai": "聽牌機率",
+    "conditional_waits": "聽牌條件下的待牌 · 前 5 項",
+    "wait_hint": "以對手已聽牌為條件，每種待牌單獨估計；可以同時有多種待牌，機率之和不要求為 100%。",
+    "discard_estimates": "合法棄牌的榮和與損失估計",
+    "no_applicable_candidates": "本步沒有適用的棄牌或立直候選，暫無放銃估計。",
+    "action": "候選動作",
+    "discard": "打",
+    "any_ron": "任意家可榮和",
+    "expected_loss": "預計損失（點）",
+    "actor_choice": "RIN 建議",
+    "ron_hint": "各家欄位估計該捨牌使其具備榮和條件的機率；預計損失已包含發生機率，單位為點。",
+    "riichi_continuation": "立直續打，本步未重新估計。",
+    "error": "觀察頭載入或推論失敗，本步沒有可用估計。",
     "waiting": "等待對局開始。",
     "not_provided": "目前的 Bot 未提供觀察頭輸出。",
     "unavailable": "目前的 RIN 安裝套件未包含與 Actor 配套的觀察頭權重。"

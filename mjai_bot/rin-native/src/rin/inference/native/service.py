@@ -23,6 +23,8 @@ def endpoint_path(root,settings):
     from .checkpoint import sha256
     value["model_files"]={name:sha256(model/name) for name in
                           ("conversion-manifest.json","config.json","actor.safetensors")}
+    from .observer_checkpoint import FILES
+    value["observer_files"]={name:sha256(model/name) if (model/name).is_file() else None for name in FILES}
     source=Path(__file__).resolve().parents[2]
     value["source_files"]={str(path.relative_to(source)):sha256(path)
                            for path in sorted(source.rglob("*.py"))}
@@ -92,6 +94,7 @@ def main():
                         started=time.perf_counter()
                         with infer_lock:
                             response=session.react(events)
+                            ready["effective"]["observer_status"]=predictor.observer_status
                             stats["decisions"]+=bool(response.get("meta",{}).get("decision"))
                             stages=getattr(session.engine,"last_timings",{})
                         elapsed=(time.perf_counter()-started)*1000

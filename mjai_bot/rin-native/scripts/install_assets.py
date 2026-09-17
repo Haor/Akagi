@@ -55,7 +55,11 @@ def main():
         name = validate_model_id(manifest["model"])
         python = Path(os.environ.get("RIN_NATIVE_PYTHON", root / "runtime/python" / executable))
         def check_model(stage):
-            code = "import sys; from rin.inference.native.checkpoint import load_actor_arrays; load_actor_arrays(sys.argv[1])"
+            code = ("import sys; from pathlib import Path; "
+                    "from rin.inference.native.checkpoint import load_actor_arrays; "
+                    "from rin.inference.native.observer_checkpoint import FILES,load_observer_arrays; "
+                    "p=Path(sys.argv[1]); _,c,m=load_actor_arrays(p); "
+                    "load_observer_arrays(p,c,m) if any((p/name).exists() for name in FILES) else None")
             subprocess.run([str(python), "-c", code, str(stage)], check=True, env=env)
         copy_new(args.model_bundle, root / "models" / name, check_model)
 

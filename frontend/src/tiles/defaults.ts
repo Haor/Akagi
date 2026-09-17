@@ -67,7 +67,7 @@ const LG_LAYOUT: LayoutItem[] = [
   { i: 'opponents',       x: 3, y: 19, w: 3,  h: 6, minW: 2, minH: 4 },
   { i: 'proxy-control',   x: 6, y: 19, w: 6,  h: 6, minW: 2, minH: 2, maxH: 6 },
   { i: 'board',           x: 0, y: 25, w: 6,  h: 14, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 39, w: 6, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 39, w: 6, h: 14, minW: 3, minH: 3 },
 ]
 
 const MD_LAYOUT: LayoutItem[] = [
@@ -87,7 +87,7 @@ const MD_LAYOUT: LayoutItem[] = [
   { i: 'player-3',        x: 8, y: 18, w: 2,  h: 8, minW: 2, minH: 6 },
   { i: 'proxy-control',   x: 0, y: 26, w: 10, h: 4, minW: 2, minH: 2, maxH: 6 },
   { i: 'board',           x: 0, y: 30, w: 6,  h: 14, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 44, w: 5, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 44, w: 5, h: 14, minW: 3, minH: 3 },
 ]
 
 const SM_LAYOUT: LayoutItem[] = [
@@ -107,7 +107,7 @@ const SM_LAYOUT: LayoutItem[] = [
   { i: 'bot-action',      x: 0, y: 43, w: 6, h: 3, minW: 3, minH: 2 },
   { i: 'bot-show',        x: 0, y: 46, w: 6, h: 5, minW: 2, minH: 3 },
   { i: 'board',           x: 0, y: 51, w: 6, h: 16, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 67, w: 6, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 67, w: 6, h: 14, minW: 3, minH: 3 },
 ]
 
 const XS_LAYOUT: LayoutItem[] = ALL_TILES.map((id, i) => ({
@@ -115,7 +115,7 @@ const XS_LAYOUT: LayoutItem[] = ALL_TILES.map((id, i) => ({
   x: 0,
   y: i * 6,
   w: 4,
-  h: id === 'header' || id === 'self-hand' ? 4 : 6,
+  h: id === 'observation-head' ? 14 : id === 'header' || id === 'self-hand' ? 4 : 6,
   minW: 4,
   minH: 2,
 }))
@@ -150,7 +150,7 @@ const LG_LAYOUT_3P: LayoutItem[] = [
   { i: 'recommendations', x: 0, y: 25, w: 6,  h: 8, minW: 2, minH: 4 },
   { i: 'risk-chart',      x: 6, y: 25, w: 6,  h: 8, minW: 2, minH: 4 },
   { i: 'board',           x: 0, y: 33, w: 6,  h: 14, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 47, w: 6, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 47, w: 6, h: 14, minW: 3, minH: 3 },
 ]
 
 const MD_LAYOUT_3P: LayoutItem[] = [
@@ -169,7 +169,7 @@ const MD_LAYOUT_3P: LayoutItem[] = [
   { i: 'recommendations', x: 0, y: 25, w: 5,  h: 8, minW: 2, minH: 4 },
   { i: 'risk-chart',      x: 5, y: 25, w: 5,  h: 8, minW: 2, minH: 4 },
   { i: 'board',           x: 0, y: 33, w: 6,  h: 14, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 47, w: 5, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 47, w: 5, h: 14, minW: 3, minH: 3 },
 ]
 
 const SM_LAYOUT_3P: LayoutItem[] = [
@@ -188,7 +188,7 @@ const SM_LAYOUT_3P: LayoutItem[] = [
   { i: 'bot-show',        x: 0, y: 46, w: 6, h: 5, minW: 2, minH: 3 },
 //{ i: 'recommendations', x: 0, y: 10, w: 6, h: 8, minW: 2, minH: 4 },
   { i: 'board',           x: 0, y: 51, w: 6, h: 16, minW: 4, minH: 8 },
-  { i: 'observation-head', x: 0, y: 67, w: 6, h: 4, minW: 3, minH: 3 },
+  { i: 'observation-head', x: 0, y: 67, w: 6, h: 14, minW: 3, minH: 3 },
 ]
 
 const ALL_TILES_3P: TileId[] = ALL_TILES.filter((id) => id !== 'player-3')
@@ -198,7 +198,7 @@ const XS_LAYOUT_3P: LayoutItem[] = ALL_TILES_3P.map((id, i) => ({
   x: 0,
   y: i * 6,
   w: 4,
-  h: id === 'header' || id === 'self-hand' ? 4 : 6,
+  h: id === 'observation-head' ? 14 : id === 'header' || id === 'self-hand' ? 4 : 6,
   minW: 4,
   minH: 2,
 }))

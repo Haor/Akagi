@@ -32,6 +32,11 @@ class IdentityTests(unittest.TestCase):
                     path.write_bytes(b"replacement")
                     self.assertNotEqual(original, service.endpoint_path(root, Settings()), str(path))
                     path.write_bytes(b"original")
+                for name in ("observer.safetensors", "observer-config.json", "observer-manifest.json"):
+                    observer_file = model / name
+                    observer_file.write_bytes(b"observer")
+                    self.assertNotEqual(original, service.endpoint_path(root, Settings()), name)
+                    observer_file.unlink()
                 self.assertNotEqual(original, service.endpoint_path(root, Settings(cpu_threads=2)))
 
 

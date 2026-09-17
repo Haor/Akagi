@@ -976,6 +976,22 @@
     "empty": "Waiting for the bot…"
   },
   "observer": {
+    "estimates": "Model estimates",
+    "estimate_hint": "Estimated from the position visible to you; these are not the opponents' actual hands.",
+    "seat": "Seat {{seat}}",
+    "tenpai": "Tenpai probability",
+    "conditional_waits": "Waits given tenpai · top 5",
+    "wait_hint": "Each tile is estimated separately, conditioned on the opponent being in tenpai. Several waits can coexist, so these probabilities need not sum to 100%.",
+    "discard_estimates": "Legal discard ron and loss estimates",
+    "no_applicable_candidates": "No applicable discard or riichi candidates at this step; no deal-in estimate is available.",
+    "action": "Candidate action",
+    "discard": "Discard",
+    "any_ron": "Any opponent ron",
+    "expected_loss": "Expected loss (points)",
+    "actor_choice": "RIN recommendation",
+    "ron_hint": "Each opponent column estimates the chance that this discard makes them eligible for ron. Expected loss includes the probability of loss and is measured in points.",
+    "riichi_continuation": "Riichi continuation; no new estimate at this step.",
+    "error": "The observation head failed to load or infer; no estimate is available at this step.",
     "waiting": "Waiting for a game to start.",
     "not_provided": "The current bot has not provided observation-head output.",
     "unavailable": "The current RIN installation does not include observation-head weights compatible with its actor."

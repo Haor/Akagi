@@ -976,6 +976,22 @@
     "empty": "等待 AI 建议…"
   },
   "observer": {
+    "estimates": "模型估计",
+    "estimate_hint": "根据当前可见局面估计，不代表对手实际手牌。",
+    "seat": "座位 {{seat}}",
+    "tenpai": "听牌概率",
+    "conditional_waits": "听牌条件下的待牌 · 前 5 项",
+    "wait_hint": "以对手已听牌为条件，每种待牌单独估计；可以同时有多种待牌，概率之和不要求为 100%。",
+    "discard_estimates": "合法弃牌的荣和与损失估计",
+    "no_applicable_candidates": "本步没有适用的弃牌或立直候选，暂无放铳估计。",
+    "action": "候选动作",
+    "discard": "打",
+    "any_ron": "任意家可荣和",
+    "expected_loss": "预计损失（点）",
+    "actor_choice": "RIN 建议",
+    "ron_hint": "各家列估计该舍牌使其具备荣和条件的概率；预计损失已包含发生概率，单位为点。",
+    "riichi_continuation": "立直续打，本步未重新估计。",
+    "error": "观察头加载或推理失败，本步没有可用估计。",
     "waiting": "等待对局开始。",
     "not_provided": "当前 Bot 未提供观察头输出。",
     "unavailable": "当前 RIN 安装包未包含与 Actor 配套的观察头权重。"

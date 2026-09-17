@@ -21,6 +21,9 @@ rin-native/
     actor.safetensors
     config.json
     conversion-manifest.json
+    observer.safetensors          # optional, bound to this exact actor
+    observer-config.json
+    observer-manifest.json
 ```
 
 The runtime must already contain PyTorch, NumPy, safetensors, msgpack, filelock,
@@ -62,6 +65,52 @@ manifest binds the source checkpoint, config, and safetensors weights. There
 are no model-name or hash allowlists. Set **Model ID** in Akagi after installing
 the resulting bundle. Unsupported architectures require an explicit versioned
 adapter.
+
+## Paired observer readout
+
+A compatible observer estimates opponents' tenpai and waits, candidate-specific
+ron eligibility, and immediate payment from the Actor's existing public
+representations. It shares one Actor forward pass and cannot modify policy
+logits, candidate selection, or game state. It runs in FP32 with the same
+attention backend as the Actor; low-precision observer inference is not enabled.
+
+Convert the matching source checkpoint using the installed native runtime:
+
+```powershell
+runtime/python/python.exe scripts/export_observer.py --source <selected.msgpack> --config <observer-config.json> --model-dir models/<model-id>
+```
+
+This generic `rin.observer.safetensors.v1` converter accepts the versioned
+`rin.observer-readout.v1` cross-attention architecture. It checks the source
+Actor SHA, converted Actor SHA, Actor config, observer config, tensor shapes,
+finite values, hashes, and exact saved round trip. Only observer parameters
+are exported; optimizer state and arbitrary source metadata are excluded.
+Existing observer files are preserved. Heads trained against another Actor
+are rejected even if their dimensions match. Supplied asset installation
+verifies the observer as well as the Actor when these optional files exist.
+
+`meta.observer` reports `ready`, `unavailable`, `error`, or `not_evaluated`.
+Missing weights produce `unavailable`; invalid or incompatible weights and
+failed readout inference produce `error` while Actor inference continues.
+A forced riichi continuation performs no new inference and reports
+`not_evaluated` with reason `riichi_continuation`.
+
+For a ready readout, `opponent_order` gives absolute seats in right/across/left
+order. `opponents` contains tenpai probabilities and conditional/unconditional
+wait probabilities for 34 tile types. Observer `candidates` identifies existing
+policy candidates by `candidate_index` and includes only applicable discards
+and riichi discards. It reports three ron marginals, an eight-state joint ron
+distribution (right bit 1, across bit 2, left bit 4), any/multiple ron
+probabilities, conditional loss, and expected loss in actual points. When
+present, the payment distribution has 12 buckets separated by 11 explicit
+edges; threshold probabilities include 8000, 12000, and 24000 points.
+
+Conditional waits assume that opponent is tenpai. Conditional payments assume
+one or more eligible ron declarations, including zero settlement after rule
+resolution. These independently trained outputs need not be perfectly
+calibrated or mutually consistent: `ron_wait_inclusion_violation` exposes
+positive ron-versus-wait discrepancies rather than hiding them. Forecasts are
+estimates from public information, not revealed opponent hands.
 
 ## Public input and review contract
 
@@ -119,8 +168,16 @@ runtime/python/python.exe -m unittest discover -s tests -v
 ```
 
 Behavior checks cover hidden-state masking, full round history, counterfactual
-riichi, forced riichi continuation, and pass metadata. Numerical actor parity
-and application acceptance are separate from these protocol tests.
+riichi, forced riichi continuation, pass metadata, exact observer binding,
+corrupt-head isolation, padded-history masking, and one Actor forward per
+decision. Numerical parity and application acceptance are separate checks.
+Use a separately supplied JAX environment and compatible reference source to
+verify Actor representations and observer outputs without adding JAX to the
+native runtime:
+
+```powershell
+runtime/python/python.exe scripts/check_observer_parity.py --model-dir models/<model-id> --fixtures <inputs.npz> --reference-source <reference-src-directory> --reference-python <reference-python-executable>
+```
 
 `scripts/extract_public_adapter.py <source-root>` rebuilds the deployment
 adapter from a compatible RIN source tree. It retains the public action codec,

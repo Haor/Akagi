@@ -66,17 +66,20 @@ class ReviewableEngine(SemanticRINMjaiEngine):
                 candidate["continuation"] = action
                 candidate["action"] = {"type": "reach", "actor": memory.seat}
             candidates.append(candidate)
-        self._decision_metadata[game_idx] = self._metadata(candidates)
+        self._decision_metadata[game_idx] = self._metadata(candidates, game_idx=game_idx, observer_row=self._observer_row)
+        self._observer_row += 1
 
-    def _metadata(self, candidates, *, continuation=False):
+    def _metadata(self, candidates, *, continuation=False, game_idx=0, observer_row=0):
+        from .observer_torch import observer_metadata
         identity = model_identity(self.predictor, self)
         return {"decision": True, "continuation": continuation, "model_identity": identity,
                 "candidates": candidates, "show": show_candidates(candidates, identity["model_id"]),
-                "observer": {"status": "unavailable", "reason": "no_compatible_observer",
-                             "actor_identity": identity["actor_sha256"], "observer_identity": None}}
+                "observer": observer_metadata(self.predictor, seat=self.memories[game_idx].seat,
+                                              row=observer_row, continuation=continuation)}
 
     def react_batch(self, game_states):
         self._decision_metadata = {}
+        self._observer_row = 0
         responses = super().react_batch(game_states)
         result = []
         for scene, response in zip(game_states, responses):
@@ -86,7 +89,7 @@ class ReviewableEngine(SemanticRINMjaiEngine):
                 # Atomic riichi is emitted as reach followed by its forced discard.
                 metadata = self._metadata([{"action": dict(event), "probability": 1.0,
                                            "protocol_probability": 1.0, "protocol_class": 0,
-                                           "selected": True}], continuation=True)
+                                           "selected": True}], continuation=True, game_idx=int(scene.game_index))
             event["meta"] = metadata
             result.append(json.dumps(event, separators=(",", ":"), allow_nan=False))
         return result

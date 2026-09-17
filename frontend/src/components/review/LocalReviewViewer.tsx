@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight, Loader2, Pause, Play } from 'lucide-react'
 import { GameBoard } from '@/components/GameBoard'
+import { ObserverDetails } from '@/components/ObserverDetails'
 import { Button } from '@/components/ui/button'
 import { invoke } from '@/lib/tauri'
 import { kyokuLabel } from '@/lib/format'
 import { tileName } from '@/lib/tileName'
 import type { GameStateSnapshot, MahgenView } from '@/types'
 import type { LocalReviewResult } from '@/stores/localReviewStore'
+import { parseObserver } from '@/stores/observerStore'
 import { actionLabel } from './actionLabel'
 
 type ReviewFrame = { game: GameStateSnapshot; view: MahgenView }
@@ -37,6 +39,7 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
   const frame = frames[currentIndex]
   const event = result.events[currentIndex]
   const decision = result.decisions.find((item) => item.event_index === currentIndex)
+  const observer = useMemo(() => parseObserver(decision?.meta, result.seat), [decision?.meta, result.seat])
   const decisions = result.decisions.filter((item) => !differencesOnly || item.matches === false)
   const rounds = result.events.flatMap((item, i) => item.type === 'start_kyoku'
     ? [{ index: i, label: `${kyokuLabel(item.bakaze ?? 'E', item.kyoku ?? 1)} · ${t('review.replay_honba', { count: item.honba ?? 0 })}` }]
@@ -102,6 +105,7 @@ export function LocalReviewViewer({ result }: { result: LocalReviewResult }) {
             <span>{candidate.selected ? '✓ ' : ''}{actionLabel(candidate.action, t, language)}{candidate.continuation?.pai ? ` → ${tileName(candidate.continuation.pai, language)}` : ''}</span>
             <span className="shrink-0 font-mono">{(candidate.probability * 100).toFixed(2)}%</span>
           </div>)}
+          {observer?.status === 'ready' && <div className="border-t pt-4"><ObserverDetails observer={observer} /></div>}
         </> : <p className="text-muted-foreground">{t('review.replay_no_decision')}</p>}
       </div>
     </div>

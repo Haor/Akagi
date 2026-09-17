@@ -12,8 +12,33 @@ const start = { type: 'start_game', names: ['a', 'b', 'c', 'd'], id: 0 } as cons
 const ready = { state: 'ready', bot: 'rin-native', actor_id: 0 } as const
 const snapshot = { is_done: false } as GameStateSnapshot
 
+function readyMeta() {
+  return {
+    decision: true, continuation: false,
+    model_identity: { actor_sha256: actor, original_sha256: 'b'.repeat(64) },
+    candidates: [
+      { action: { type: 'none' }, probability: 0.1, selected: false },
+      { action: { type: 'dahai', actor: 0, pai: '3p' }, probability: 0.5, selected: true },
+      { action: { type: 'reach', actor: 0 }, continuation: { type: 'dahai', actor: 0, pai: '5sr' }, probability: 0.4, selected: false },
+    ],
+    observer: {
+      status: 'ready', schema_version: 'rin.observer-readout.v1', kind: 'actor-token-cross-attention', actor_identity: actor,
+      observer_identity: { source_sha256: 'c'.repeat(64), safetensors_sha256: 'd'.repeat(64), config_sha256: 'e'.repeat(64), representation_actor_sha256: 'b'.repeat(64) },
+      opponent_order: [1, 2, 3],
+      opponents: [1, 2, 3].map((seat) => ({ seat, relative_seat: seat, tenpai_probability: 0.5,
+        conditional_wait_probability: Array(34).fill(0.7) as number[], unconditional_wait_probability: Array(34).fill(0.35) as number[] })),
+      candidates: [2, 1].map((candidate_index) => ({ candidate_index, ron_probability: [0.1, 0.2, 0.3], any_ron_probability: 0.5,
+        multiple_ron_probability: 0.1, conditional_loss_points: 8000, expected_loss_points: 4000,
+        ron_joint_probability: [0.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0, 0], ron_wait_inclusion_violation: [0, 0, 0],
+        conditional_payment_probability: Array(12).fill(1 / 12) as number[], conditional_payment_ge_8000: 0.5, payment_ge_8000: 0.25,
+      })),
+      payment_bucket_edges: [0.5, 1000, 2000, 4000, 8000, 12000, 16000, 24000, 32000, 48000, 96000],
+    },
+  }
+}
+
 beforeEach(() => {
-  useObserverStore.setState({ gameActive: false, lifecycleSeen: false, runnerReady: false, botName: null, observer: null })
+  useObserverStore.setState({ gameActive: false, lifecycleSeen: false, runnerReady: false, botName: null, seat: null, observer: null })
 })
 
 describe('observation-head contract', () => {
@@ -73,5 +98,80 @@ describe('observation-head contract', () => {
     expect(observerMessage(useObserverStore.getState())).toBe('observer.unavailable')
     store.onResponse({ type: 'none' })
     expect(observerMessage(useObserverStore.getState())).toBe('observer.not_provided')
+  })
+
+  it('maps readouts by candidate index and preserves non-normalized per-tile wait probabilities', () => {
+    const parsed = parseObserver(readyMeta(), 0)
+    expect(parsed?.status).toBe('ready')
+    if (parsed?.status !== 'ready') throw new Error('expected ready readout')
+    expect(parsed.opponents.map((opponent) => opponent.seat)).toEqual([1, 2, 3])
+    expect(parsed.opponents[0].conditional_wait_probability.reduce((a, b) => a + b)).toBeGreaterThan(1)
+    expect(parsed.candidates[0]).toMatchObject({ candidate_index: 2, action_type: 'reach', tile: '5sr', selected: false })
+    expect(parsed.candidates[1]).toMatchObject({ candidate_index: 1, action_type: 'dahai', tile: '3p', selected: true })
+    const noDiscard = readyMeta()
+    noDiscard.observer.candidates = []
+    expect(parseObserver(noDiscard)?.status).toBe('ready')
+  })
+
+  it('rejects actor and seat mismatches, bad candidate mappings, non-decisions and forced continuations', () => {
+    const cases: ((payload: ReturnType<typeof readyMeta>) => void)[] = [
+      (payload) => { payload.model_identity.actor_sha256 = 'f'.repeat(64) },
+      (payload) => { payload.observer.observer_identity.representation_actor_sha256 = 'f'.repeat(64) },
+      (payload) => { payload.observer.opponent_order = [1, 3, 2] },
+      (payload) => { payload.observer.opponents[0].seat = 2 },
+      (payload) => { payload.observer.opponents[0].relative_seat = 2 },
+      (payload) => { payload.observer.candidates[0].candidate_index = 99 },
+      (payload) => { payload.observer.candidates[0].candidate_index = 0 },
+      (payload) => { payload.observer.candidates[0].candidate_index = 1 },
+      (payload) => { payload.candidates[2].continuation!.actor = 1 },
+      (payload) => { payload.decision = false },
+      (payload) => { payload.continuation = true },
+    ]
+    for (const mutate of cases) {
+      const payload = readyMeta()
+      mutate(payload)
+      expect(parseObserver(payload, 0)).toBeNull()
+    }
+    expect(parseObserver(readyMeta(), 2)).toBeNull()
+  })
+
+  it('rejects nonfinite or out-of-range probabilities and inconsistent shapes', () => {
+    const cases: ((payload: ReturnType<typeof readyMeta>) => void)[] = [
+      (payload) => { payload.observer.opponents[0].tenpai_probability = NaN },
+      (payload) => { payload.observer.opponents[1].conditional_wait_probability[0] = 1.1 },
+      (payload) => { payload.observer.opponents[2].unconditional_wait_probability.pop() },
+      (payload) => { payload.observer.candidates[0].ron_probability = [0.1, 0.2] },
+      (payload) => { payload.observer.candidates[0].any_ron_probability = Infinity },
+      (payload) => { payload.observer.candidates[0].multiple_ron_probability = -0.1 },
+      (payload) => { payload.observer.candidates[0].ron_joint_probability.pop() },
+      (payload) => { payload.observer.candidates[0].ron_wait_inclusion_violation[0] = -0.01 },
+      (payload) => { payload.observer.candidates[0].conditional_loss_points = -1 },
+      (payload) => { payload.observer.candidates[0].expected_loss_points = Infinity },
+      (payload) => { payload.observer.candidates[0].conditional_payment_probability.pop() },
+      (payload) => { payload.observer.candidates[0].payment_ge_8000 = 2 },
+      (payload) => { payload.observer.payment_bucket_edges.reverse() },
+      (payload) => { payload.observer.payment_bucket_edges.push(192000) },
+    ]
+    for (const mutate of cases) {
+      const payload = readyMeta()
+      mutate(payload)
+      expect(parseObserver(payload)).toBeNull()
+    }
+  })
+
+  it('clears numeric estimates on progress and renders continuation/errors without old numbers', () => {
+    const store = useObserverStore.getState()
+    store.onGameEvent({ ...start, names: [...start.names] })
+    store.onBotStatus(ready)
+    store.onResponse({ type: 'none', meta: readyMeta() })
+    expect(observerMessage(useObserverStore.getState())).toBe('observer.estimates')
+    store.onGameEvent({ type: 'dahai', actor: 0, pai: '3p', tsumogiri: false })
+    expect(useObserverStore.getState().observer).toBeNull()
+    store.onResponse({ type: 'none', meta: { ...readyMeta(), observer: { status: 'not_evaluated', reason: 'riichi_continuation', actor_identity: actor } } })
+    expect(observerMessage(useObserverStore.getState())).toBe('observer.riichi_continuation')
+    store.onResponse({ type: 'none', meta: { ...readyMeta(), observer: { status: 'error', reason: 'invalid_weights', actor_identity: actor } } })
+    expect(observerMessage(useObserverStore.getState())).toBe('observer.error')
+    store.onResponse({ type: 'none', meta: { ...readyMeta(), decision: false } })
+    expect(useObserverStore.getState().observer).toBeNull()
   })
 })
